@@ -1,0 +1,146 @@
+<?php
+
+namespace App\Domains\Purchasing\Services;
+
+use App\Domains\Purchasing\DTOs\CreatePurchaseData;
+use App\Models\Contact;
+use App\Domains\Inventory\Services\InventoryService;
+use App\Models\Product;
+use App\Models\PurchaseBill;
+use App\Models\PurchaseBillItem;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+
+class PurchaseService
+{
+    public function __construct(
+        private readonly InventoryService $inventoryService,
+    ) {}
+
+    public function search(string $query = '', ?int $supplierId = null, ?string $status = null, int $perPage = 25): LengthAwarePaginator
+    {
+        $q = PurchaseBill::with('supplier')->where('invoice_ref', 'not like', 'PRET-%');
+
+        if ($query) {
+            $q->where(function ($q) use ($query) {
+                $q->where('invoice_ref', 'like', "%{$query}%")
+                  ->orWhere('supplier_name', 'like', "%{$query}%");
+            });
+        }
+
+        if ($supplierId) {
+            $q->where('supplier_id', $supplierId);
+        }
+
+        if ($status && $status !== 'all') {
+            $q->where('status', $status);
+        }
+
+        return $q->orderBy('created_at', 'desc')->paginate($perPage);
+    }
+
+    public function create(CreatePurchaseData $data): PurchaseBill
+    {
+        return DB::transaction(function () use ($data) {
+            $supplier = Contact::findOrFail($data->supplierId);
+            if (!in_array('supplier', $supplier->roles ?? [])) {
+                throw new \InvalidArgumentException('Contact must have the supplier role.');
+            }
+
+            $subtotal = array_sum(array_map(fn ($item) => $item->totalCost, $data->items));
+            $totalAmount = $subtotal - ($data->discount ?? 0);
+            $outstanding = max(0, $totalAmount - $data->amountPaid);
+
+            $bill = PurchaseBill::create([
+                'invoice_ref' => $data->invoiceRef,
+                'supplier_id' => $data->supplierId,
+                'supplier_name' => $supplier->name,
+                'date' => $data->date,
+                'subtotal' => $subtotal,
+                'discount' => $data->discount ?? 0,
+                'total_amount' => $totalAmount,
+                'amount_paid' => $data->amountPaid,
+                'outstanding_balance' => $outstanding,
+                'payment_status' => $data->paymentStatus,
+                'status' => $data->status,
+                'notes' => $data->notes,
+                'created_by' => $data->createdBy,
+            ]);
+
+            foreach ($data->items as $itemData) {
+                $product = Product::findOrFail($itemData->productId);
+                $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
+
+                $unitName = $this->resolveUnitName($product->base_unit_id);
+                PurchaseBillItem::create([
+                    'purchase_bill_id' => $bill->id,
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'base_unit_id' => $product->base_unit_id,
+                    'base_unit_name' => $unitName,
+                    'purchase_pack_name' => $itemData->packName ?? 'Pack',
+                    'purchase_pack_qty' => $itemData->purchasePackQty,
+                    'purchase_quantity' => $itemData->purchaseQuantity,
+                    'unit_cost' => $itemData->unitCost,
+                    'total_cost' => $itemData->totalCost,
+                    'discount_pct' => $itemData->discountPct,
+                ]);
+
+                $this->inventoryService->recordPurchase(
+                    productId: $product->id,
+                    quantity: (float) $baseQuantity,
+                    packagingName: $itemData->packName,
+                    packagingQuantity: (float) $itemData->purchasePackQty,
+                    reference: $data->invoiceRef,
+                    notes: "Purchase from {$supplier->name}",
+                    user: $data->createdBy,
+                    referenceId: $bill->id,
+                );
+            }
+
+            return $bill->load('items', 'supplier');
+        });
+    }
+
+    public function get(int $id): PurchaseBill
+    {
+        return PurchaseBill::with('items', 'supplier')->findOrFail($id);
+    }
+
+    public function delete(int $id): ?bool
+    {
+        return PurchaseBill::findOrFail($id)->delete();
+    }
+
+    public function restore(int $id): PurchaseBill
+    {
+        $bill = PurchaseBill::withTrashed()->findOrFail($id);
+        $bill->restore();
+        return $bill;
+    }
+
+    private function resolveUnitName(?string $unitId): string
+    {
+        $units = [
+            'piece' => 'Piece', 'capsule' => 'Capsule', 'tablet' => 'Tablet',
+            'bottle' => 'Bottle', 'box' => 'Box', 'carton' => 'Carton',
+            'strip' => 'Strip', 'sachet' => 'Sachet',
+            'kilogram' => 'Kilogram', 'gram' => 'Gram', 'milligram' => 'Milligram',
+            'litre' => 'Litre', 'millilitre' => 'Millilitre', 'meter' => 'Meter',
+        ];
+        $key = strtolower((string) $unitId);
+        return $units[$key] ?? $unitId ?? 'Unit';
+    }
+
+    private function recalculateStatus(Product $product): void
+    {
+        if ($product->stock_quantity <= 0) {
+            $product->status = 'out-of-stock';
+        } elseif ($product->stock_quantity <= $product->low_stock_threshold) {
+            $product->status = 'low-stock';
+        } else {
+            $product->status = 'in-stock';
+        }
+        $product->save();
+    }
+}
