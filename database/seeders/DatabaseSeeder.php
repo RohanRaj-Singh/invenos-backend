@@ -17,10 +17,10 @@ class DatabaseSeeder extends Seeder
     {
         // 1. Users
         $admin = User::create([
-            'name' => 'Dr. Ahmed',
-            'username' => 'admin',
-            'email' => 'admin@invenos.com',
-            'password' => bcrypt('admin'),
+            'name' => 'Mahinder',
+            'username' => 'mahinder',
+            'email' => 'mahinder@invenos.com',
+            'password' => bcrypt('khalsa@1313'),
             'role' => 'admin',
             'active' => true,
         ]);
