@@ -26,6 +26,8 @@ Route::prefix('inventory')->group(function () {
     Route::put('/product/{id}', [ProductController::class, 'update'])->name('inventory.update');
     Route::delete('/product/{id}', [ProductController::class, 'destroy'])->name('inventory.destroy');
     Route::get('/generate-sku', [ProductController::class, 'generateSku'])->name('inventory.generate-sku');
+    Route::post('/preview-packaging', [ProductController::class, 'previewPackaging'])->name('inventory.preview-packaging');
+    Route::get('/product-units', [ProductController::class, 'productUnits'])->name('inventory.product-units');
     Route::post('/adjust', [InventoryController::class, 'adjust'])->name('inventory.adjust');
 });
 
@@ -101,7 +103,11 @@ Route::prefix('settings')->group(function () {
     Route::get('/users/new', fn () => Inertia::render('settings/UserForm'))->name('settings.users.create');
     Route::get('/users/{id}', fn (string $id) => Inertia::render('settings/UserForm', ['id' => $id]))->name('settings.users.show');
     Route::get('/users/{id}/permissions', fn (string $id) => Inertia::render('settings/Permissions', ['id' => $id]))->name('settings.users.permissions');
-    Route::get('/backup', fn () => Inertia::render('settings/BackupRestore'))->name('settings.backup');
+    Route::get('/backup', [\App\Http\Controllers\BackupController::class, 'index'])->name('settings.backup');
+    Route::post('/backup', [\App\Http\Controllers\BackupController::class, 'create'])->name('settings.backup.create');
+    Route::post('/backup/restore', [\App\Http\Controllers\BackupController::class, 'restore'])->name('settings.backup.restore');
+    Route::get('/backup/download/{filename}', [\App\Http\Controllers\BackupController::class, 'download'])->name('settings.backup.download');
+    Route::delete('/backup/{filename}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('settings.backup.delete');
     Route::get('/about', fn () => Inertia::render('settings/AboutSystem'))->name('settings.about');
 });
 

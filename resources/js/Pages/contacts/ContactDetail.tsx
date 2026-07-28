@@ -39,7 +39,7 @@ export default function ContactDetailPage() {
 
   if (!contact) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto pb-20 sm:pb-8">
         <div className="flex flex-col items-center justify-center py-24 text-sm text-muted-foreground">
           <User className="size-12 text-muted-foreground/30 mb-4" />
           <h2 className="text-lg font-semibold text-foreground mb-1">Contact not found</h2>
@@ -54,7 +54,7 @@ export default function ContactDetailPage() {
   const isPayable = contact.balance_type === 'payable'
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-5 pb-20 sm:pb-8">
       <div className="flex items-center justify-between">
         <button onClick={() => router.visit('/contacts')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="size-4" /> <span>Back to contacts</span>
@@ -63,7 +63,7 @@ export default function ContactDetailPage() {
 
       {/* Header */}
       <Card className="overflow-hidden">
-        <div className="h-20 sm:h-24 bg-gradient-to-r from-primary/80 to-primary/40" />
+        <div className="h-16 sm:h-24 bg-gradient-to-r from-primary/80 to-primary/40" />
         <CardContent className="p-0">
           <div className="px-5 pb-5">
             <div className="flex items-end gap-4 -mt-10 mb-4">
@@ -79,15 +79,15 @@ export default function ContactDetailPage() {
                 <div className="mt-1"><RoleBadgeList roles={contact.roles as any} /></div>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <InfoItem icon={Phone} label="Phone" value={contact.phone} />
-              <InfoItem icon={Mail} label="Email" value={contact.email || '—'} />
-              <InfoItem icon={MapPin} label="Address" value={contact.address || '—'} />
-              <div className="flex items-center gap-2.5 text-sm">
-                <div className="flex items-center justify-center size-8 rounded-lg bg-muted shrink-0"><Banknote className="size-3.5 text-muted-foreground" /></div>
-                <div>
-                  <div className="text-xs text-muted-foreground">{isPayable ? 'Payable' : 'Receivable'}</div>
-                  <div className={cn('font-semibold', balance > 0 ? (isPayable ? 'text-blue-600' : 'text-amber-600') : 'text-muted-foreground')}>{formatCurrency(Math.abs(balance))}</div>
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-1.5 sm:gap-3">
+              <CompactInfo icon={Phone} label="Phone" value={contact.phone} />
+              <CompactInfo icon={Mail} label="Email" value={contact.email || '—'} />
+              <CompactInfo icon={MapPin} label="Address" value={contact.address || '—'} />
+              <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs sm:text-sm">
+                <div className="flex items-center justify-center size-6 sm:size-8 rounded-lg bg-muted shrink-0"><Banknote className="size-3 sm:size-3.5 text-muted-foreground" /></div>
+                <div className="min-w-0">
+                  <div className="text-[10px] sm:text-xs text-muted-foreground truncate">{isPayable ? 'Payable' : 'Receivable'}</div>
+                  <div className={cn('text-xs sm:text-sm font-semibold truncate', balance > 0 ? (isPayable ? 'text-blue-600' : 'text-amber-600') : 'text-muted-foreground')}>{formatCurrency(Math.abs(balance))}</div>
                 </div>
               </div>
             </div>
@@ -137,19 +137,20 @@ export default function ContactDetailPage() {
               ) : (
                 <div className="space-y-1">
                   {txnList.map((txn: any) => (
-                    <div key={txn.id} className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/50 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className={cn('size-8 rounded-lg flex items-center justify-center',
+                    <div key={txn.id} className="flex items-center justify-between py-3 px-3 rounded-lg hover:bg-muted/50 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className={cn('size-8 sm:size-9 rounded-lg flex items-center justify-center shrink-0',
                           txn.direction === 'in' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10' : 'bg-red-50 text-red-600 dark:bg-red-500/10'
                         )}>
                           <Banknote className="size-4" />
                         </div>
-                        <div>
-                          <div className="text-sm font-medium text-foreground capitalize">{txn.type.replace(/_/g, ' ')}</div>
-                          <div className="text-xs text-muted-foreground">{txn.date} &middot; {txn.reference} &middot; {txn.description || ''}</div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-foreground capitalize truncate">{txn.type.replace(/_/g, ' ')}</div>
+                          <div className="text-xs text-muted-foreground truncate">{formatDisplayDate(txn.date)} &middot; {txn.reference}</div>
+                          {txn.description && <div className="text-[11px] text-muted-foreground/70 truncate mt-0.5">{txn.description}</div>}
                         </div>
                       </div>
-                      <span className={cn('text-sm font-semibold', txn.direction === 'in' ? 'text-emerald-600' : 'text-red-600')}>
+                      <span className={cn('text-sm font-semibold shrink-0 ml-2', txn.direction === 'in' ? 'text-emerald-600' : 'text-red-600')}>
                         {txn.direction === 'in' ? '+' : '-'}{formatCurrency(txn.amount)}
                       </span>
                     </div>
@@ -164,11 +165,27 @@ export default function ContactDetailPage() {
   )
 }
 
-function InfoItem({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+/** Compact info item for grid display */
+function CompactInfo({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <div className="flex items-center gap-2.5 text-sm">
-      <div className="flex items-center justify-center size-8 rounded-lg bg-muted shrink-0"><Icon className="size-3.5 text-muted-foreground" /></div>
-      <div className="min-w-0"><div className="text-xs text-muted-foreground">{label}</div><div className="font-medium truncate">{value}</div></div>
+    <div className="flex items-center gap-1.5 sm:gap-2.5 text-xs sm:text-sm min-w-0">
+      <div className="flex items-center justify-center size-6 sm:size-8 rounded-lg bg-muted shrink-0"><Icon className="size-3 sm:size-3.5 text-muted-foreground" /></div>
+      <div className="min-w-0">
+        <div className="text-[10px] sm:text-xs text-muted-foreground truncate">{label}</div>
+        <div className="text-xs sm:text-sm font-medium truncate">{value}</div>
+      </div>
     </div>
   )
 }
+
+function formatDisplayDate(dateStr: string): string {
+  if (!dateStr) return '—'
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return dateStr
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const day = d.getDate().toString().padStart(2, '0')
+    return `${day} ${months[d.getMonth()]} ${d.getFullYear()}`
+  } catch { return dateStr }
+}
+

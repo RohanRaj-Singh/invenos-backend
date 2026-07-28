@@ -3,9 +3,8 @@
 namespace App\Http\Requests\Products;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
-class CreateProductRequest extends FormRequest
+class UpdateProductRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -14,12 +13,36 @@ class CreateProductRequest extends FormRequest
 
     public function rules(): array
     {
+        // Use a closure-based check that directly queries the database.
+        // This avoids issues with route parameter access in FormRequest validation.
         return [
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:100',
+            'sku' => [
+                'required', 'string', 'max:100',
+                function ($attribute, $value, $fail) {
+                    $id = $this->route('id') ?? $this->input('_product_id');
+                    $exists = \App\Models\Product::withTrashed()
+                        ->where('sku', $value)
+                        ->when($id, fn ($q) => $q->where('id', '!=', $id))
+                        ->exists();
+                    if ($exists) {
+                        $fail('This SKU is already taken.');
+                    }
+                },
+            ],
             'barcode' => [
                 'nullable', 'string', 'max:100',
-                Rule::unique('products', 'barcode')->whereNull('deleted_at'),
+                function ($attribute, $value, $fail) {
+                    if (!$value) return;
+                    $id = $this->route('id') ?? $this->input('_product_id');
+                    $exists = \App\Models\Product::withTrashed()
+                        ->where('barcode', $value)
+                        ->when($id, fn ($q) => $q->where('id', '!=', $id))
+                        ->exists();
+                    if ($exists) {
+                        $fail('This barcode is already taken.');
+                    }
+                },
             ],
             'category_id' => 'nullable|integer|exists:product_categories,id',
             'description' => 'nullable|string|max:2000',
@@ -35,7 +58,7 @@ class CreateProductRequest extends FormRequest
             'selling_units.*.name' => 'required_with:selling_units|string|max:100',
             'selling_units.*.sale_price' => 'required_with:selling_units|numeric|min:0',
             'selling_units.*.quantity' => 'nullable|numeric|min:0.01',
-            // Packaging levels (optional — products without packaging use legacy model)
+            // Packaging levels (optional — only if product uses packaging)
             'packaging' => 'nullable|array',
             'packaging.*.container_unit_id' => 'required_with:packaging|integer|exists:product_units,id',
             'packaging.*.contains_unit_id' => 'required_with:packaging|integer|exists:product_units,id|different:packaging.*.container_unit_id',

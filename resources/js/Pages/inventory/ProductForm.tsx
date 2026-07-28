@@ -1,30 +1,22 @@
 import { usePage } from '@inertiajs/react'
-import ProductForm from './components/ProductForm'
+import ProductFormComponent from './components/ProductForm'
 
-interface CategoryItem {
-  id: number
-  name: string
-}
-
-interface BackendProduct {
-  id: number
-  name: string
-  sku: string
-  category: CategoryItem | null
-  [key: string]: any
-}
-
+/**
+ * Legacy page wrapper — kept for backward compatibility.
+ * Use AddProduct for creating and EditProduct for editing instead.
+ */
 export default function ProductFormPage() {
   const { props } = usePage()
-  const { categories, product, generated_sku } = props as any
+  const categories = (props as any).categories || []
+  const product = (props as any).product as Record<string, any> | null
+  const generatedSku = (props as any).generated_sku as string | undefined
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-      <ProductForm
-        categories={categories as CategoryItem[]}
-        product={product as BackendProduct | undefined}
-        generatedSku={generated_sku as string | undefined}
-      />
-    </div>
+    <ProductFormComponent
+      mode={product ? 'edit' : 'create'}
+      categories={categories}
+      product={product}
+      generatedSku={generatedSku}
+    />
   )
 }

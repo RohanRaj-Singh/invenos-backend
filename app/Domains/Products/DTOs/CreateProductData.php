@@ -20,6 +20,7 @@ class CreateProductData
         public readonly ?string $createdBy,
         public readonly array $sellingUnits = [],
         public readonly ?array $purchaseConfig = null,
+        public readonly array $packaging = [],        // NEW: packaging levels
     ) {}
 
     public static function fromRequest(array $data): self
@@ -40,6 +41,7 @@ class CreateProductData
             createdBy: $data['created_by'] ?? null,
             sellingUnits: $data['selling_units'] ?? [],
             purchaseConfig: $data['purchase_config'] ?? null,
+            packaging: $data['packaging'] ?? [],
         );
     }
 

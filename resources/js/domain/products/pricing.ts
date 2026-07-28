@@ -4,5 +4,7 @@ export function computePricePerBaseUnit(defaultPrice: number, baseUnitQuantity: 
 }
 
 export function computeCustomUnitPrice(pricePerBase: number, factor: number): number {
-  return Math.round(pricePerBase * factor * 100) / 100
+  const raw = pricePerBase * factor
+  // Use 4 decimal places for small units (grams, ml) to avoid rounding to 0
+  return Math.round(raw * 10000) / 10000
 }

@@ -17,6 +17,9 @@ import { ConfirmTransactionDialog } from '@/features/transactions/dialogs/Confir
 import { ConfirmClearDialog } from '@/features/transactions/dialogs/ClearConfirmDialog'
 import { toast } from 'sonner'
 import type { Contact, PaymentMethod } from '@/types'
+import BillResponsiveWrapper from '@/features/billing/BillResponsiveWrapper'
+import MobileCartList from '@/features/billing/MobileCartList'
+import MobilePaymentDrawer from '@/features/billing/MobilePaymentDrawer'
 
 // ─── Purchase CartItem ───────────────────────────────────────
 
@@ -139,6 +142,7 @@ export default function PurchaseBillPage() {
   const [amountPaid, setAmountPaid] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [showConfirm, setShowConfirm] = useState(false)
+  const [showMobilePayment, setShowMobilePayment] = useState(false)
   const [showReceipt, setShowReceipt] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [receiptRef, setReceiptRef] = useState('')
@@ -282,7 +286,7 @@ export default function PurchaseBillPage() {
       const opt = opts.find((o: any) => o.id === unitId)
       if (!opt) return
       const costPerBase = product.purchaseConfig ? product.purchaseConfig.cost / product.purchaseConfig.quantity : item.unitCost / item.purchasePackQty
-      const newCost = Math.round(costPerBase * opt.factor * 100) / 100
+      const newCost = Math.round(costPerBase * opt.factor * 10000) / 10000
       setCart((prev) => prev.map((c) => c.id !== itemId ? c : {
         ...c,
         purchasePackName: opt.label,
@@ -491,18 +495,19 @@ export default function PurchaseBillPage() {
         placeholder="Search product by name or SKU... (Enter to add)"
       />
 
-      {/* ── Table ── */}
+      {/* ── Table (desktop) ── */}
+      <div className="hidden sm:flex sm:flex-col sm:flex-1 sm:min-h-0">
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <div className="rounded-xl border border-border overflow-hidden">
           <table className="w-full" style={{tableLayout: 'fixed'}}>
             <thead>
               <tr className="border-b border-border bg-muted/40">
                 <Th className="w-8">#</Th>
-                <Th style={{width: '32%'}}>Product</Th>
-                <Th className="w-24">Pack</Th>
-                <Th className="w-16 text-center">Qty</Th>
-                <Th className="w-24 text-right">Cost</Th>
-                <Th className="w-24 text-right">Total</Th>
+                <Th className="w-[32%]">Product</Th>
+                <Th className="w-28">Pack</Th>
+                <Th className="w-20 text-center">Qty</Th>
+                <Th className="w-28 text-right">Cost</Th>
+                <Th className="w-28 text-right">Total</Th>
                 <Th className="w-8" />
               </tr>
             </thead>
@@ -601,6 +606,7 @@ export default function PurchaseBillPage() {
                             min="0"
                             step={item.purchasePackQty < 1 ? '0.1' : '1'}
                           />
+                          <span className="text-[10px] text-muted-foreground w-8 text-left">{item.purchasePackName}</span>
                           <button onClick={() => updateQuantity(item.id, 1)} className="flex items-center justify-center size-6 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shrink-0">
                             <Plus className="size-3" />
                           </button>
@@ -703,9 +709,67 @@ export default function PurchaseBillPage() {
             </div>
           </div>
         )}
+      </div>)
+
+    </div> {/* end desktop hidden sm:block */}
+
+      {/* ── Cart (mobile) ── */}
+      <div className="block sm:hidden" style={{height: 'calc(100vh - 250px)', overflowY: 'auto'}}>
+        <div className="px-4 py-3 space-y-3">
+          <MobileCartList
+            items={cart.map((c) => {
+              const prod = mockProducts.find((p: any) => p.id === c.productId)
+              const customOpts = prod ? purchaseStrategy.getCustomUnitOptions({ id: prod.id, name: prod.name, sku: prod.sku, category: prod.category, baseUnitId: prod.baseUnitId, sellingUnits: [] } as any) : []
+              return {
+                id: c.id,
+                productId: c.productId,
+                productName: c.productName,
+                packName: c.purchasePackName,
+                baseUnitName: c.baseUnitName,
+                quantity: c.purchaseQuantity,
+                unitCost: costOverrides[c.productId] ?? c.unitCost,
+                totalCost: (costOverrides[c.productId] ?? c.unitCost) * c.purchaseQuantity,
+                sellingUnits: [
+                  { id: 'purchase-pack', name: c.purchasePackName },
+                  { id: c.baseUnitId, name: 'Per ' + c.baseUnitName },
+                ],
+                customUnits: customOpts.length > 0 ? customOpts.map((o: any) => ({ id: o.id, label: o.label })) : undefined,
+                selectedUnitId: c.purchasePackName === c.baseUnitId ? c.baseUnitId : 'purchase-pack',
+              }
+            })}
+            costLabel="Cost"
+            onUpdateQty={(id, delta) => updateQuantity(id, delta)}
+            onRemove={(id) => removeItem(id)}
+            onPriceChange={(productId, newPrice) => {
+              setCostOverrides((prev: any) => ({ ...prev, [productId]: newPrice }))
+            }}
+            onChangeUnit={(id, unitId) => {
+              const item = cart.find((c) => c.productId === id || c.id === id)
+              if (item) handleChangeUnit(item.id, unitId)
+            }}
+          />
+          {cart.length > 0 && (
+            <div className="flex items-center justify-between px-1 py-3 border-t border-border">
+              <div>
+                <div className="text-xs text-muted-foreground">Total</div>
+                <div className="text-lg font-bold tabular-nums">{formatCurrency(grandTotal)}</div>
+              </div>
+              <button
+                onClick={() => {
+                  if (!supplier) { toast.error('Please select a supplier first'); return }
+                  setShowMobilePayment(true)
+                }}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold shadow-sm"
+              >
+                Proceed to Payment
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── Payment Bar ── */}
+      {/* ── Payment Bar (desktop) ── */}
+      <div className="hidden sm:block sm:shrink-0">
         <PaymentPanel
         paymentMethod={paymentMethod}
         onMethodChange={setPaymentMethod}
@@ -755,6 +819,37 @@ export default function PurchaseBillPage() {
         onOpenChange={setShowClearConfirm}
         itemCount={cart.length}
         onConfirm={() => { resetPurchase(); toast.success('Cart cleared') }}
+      />
+      </div> {/* end hidden sm:block (PaymentPanel desktop) */}
+
+      {/* ── Mobile Payment Drawer ── */}
+      <MobilePaymentDrawer
+        open={showMobilePayment}
+        onClose={() => setShowMobilePayment(false)}
+        onConfirm={handleRecordPurchase}
+        grandTotal={grandTotal}
+        amountPaid={amountPaid}
+        onAmountChange={setAmountPaid}
+        paymentMethod={paymentMethod}
+        onMethodChange={setPaymentMethod}
+        paymentMethods={[
+          { value: 'cash', label: 'Cash' },
+          { value: 'card', label: 'Card' },
+          { value: 'transfer', label: 'Transfer' },
+          { value: 'easypaisa', label: 'Easypaisa' },
+          { value: 'jazzcash', label: 'JazzCash' },
+        ]}
+        confirmLabel="Record Purchase"
+        footer={
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setShowMobilePayment(false); resetPurchase() }}
+              className="flex-1 h-11 rounded-xl border border-input text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Clear Cart
+            </button>
+          </div>
+        }
       />
 
       {/* ── Success Dialog ── */}

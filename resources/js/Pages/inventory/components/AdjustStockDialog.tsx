@@ -18,9 +18,10 @@ interface AdjustStockDialogProps {
   currentStock?: number
   open: boolean
   onOpenChange: (open: boolean) => void
+  stockUnit?: string
 }
 
-export default function AdjustStockDialog({ productId, productName, currentStock = 0, open, onOpenChange }: AdjustStockDialogProps) {
+export default function AdjustStockDialog({ productId, productName, currentStock = 0, open, onOpenChange, stockUnit = 'units' }: AdjustStockDialogProps) {
   const [type, setType] = useState<'adjustment' | 'damage' | 'consumption'>('adjustment')
   const [quantity, setQuantity] = useState('')
   const [direction, setDirection] = useState<'add' | 'remove'>('add')
@@ -67,7 +68,7 @@ export default function AdjustStockDialog({ productId, productName, currentStock
           {/* Current stock display */}
           <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 text-sm">
             <span className="text-muted-foreground">Current Stock</span>
-            <span className="font-bold text-lg">{currentStock.toLocaleString()} units</span>
+            <span className="font-bold text-lg">{currentStock.toLocaleString()} {stockUnit}</span>
           </div>
 
           {/* Adjustment type */}
@@ -159,7 +160,7 @@ export default function AdjustStockDialog({ productId, productName, currentStock
                         ? -Math.abs(parseInt(quantity))
                         : parseInt(quantity)
                   )
-                ).toLocaleString()} units
+                ).toLocaleString()} {stockUnit}
               </span>
             </div>
           )}

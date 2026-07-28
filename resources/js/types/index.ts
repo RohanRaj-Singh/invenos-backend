@@ -173,6 +173,42 @@ export interface SellingUnit {
   sku?: string
   /** Which selling unit shows first at POS. */
   isDefault: boolean
+  /** Backend FK to product_units.id — stable identifier for derivation matching. */
+  productUnitId?: number | null
+  /** Backend FK to product_packaging.id — null for custom/standalone units. */
+  packagingId?: number | null
+}
+
+// ── NEW: Packaging Level ──
+export interface PackagingLevel {
+  /** Unique client-side key for React rendering. */
+  _key: string
+  /** FK to product_units.id for the larger unit (e.g. Box). */
+  containerUnitId: number | null
+  /** Display name of the container unit. */
+  containerName: string
+  /** FK to product_units.id for the smaller unit (e.g. Pack). */
+  containsUnitId: number | null
+  /** Display name of the contains unit. */
+  containsName: string
+  /** How many of the contains unit fit in one container (e.g. 12). */
+  quantity: number
+  /** Ordering: 1, 2, 3… */
+  level: number
+}
+
+// ── NEW: Product Unit (from backend product_units table) ──
+export interface ProductUnit {
+  id: number
+  name: string
+}
+
+// ── NEW: Packaging Preview Result ──
+export interface PackagingPreviewUnit {
+  product_unit_id: number
+  name: string
+  quantity: number
+  sale_price: number
 }
 
 // ── NEW: Ingredient (replaces ProductIngredient) ──

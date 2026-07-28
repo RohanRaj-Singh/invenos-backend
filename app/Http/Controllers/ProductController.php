@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Domains\Products\DTOs\CreateProductData;
+use App\Domains\Products\Services\PackagingDerivationEngine;
 use App\Domains\Products\Services\ProductService;
 use App\Http\Requests\Products\CreateProductRequest;
+use App\Http\Requests\Products\UpdateProductRequest;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -13,6 +16,7 @@ class ProductController extends Controller
 {
     public function __construct(
         private readonly ProductService $productService,
+        private readonly PackagingDerivationEngine $derivationEngine,
     ) {}
 
     public function index(): Response
@@ -41,8 +45,9 @@ class ProductController extends Controller
 
     public function create(): Response
     {
-        return Inertia::render('inventory/ProductForm', [
+        return Inertia::render('inventory/CreateProduct', [
             'categories' => $this->productService->allCategories(),
+            'products' => $this->productService->search(perPage: 999)->items(),
             'generated_sku' => $this->productService->generateSku(''),
         ]);
     }
@@ -50,6 +55,32 @@ class ProductController extends Controller
     public function store(CreateProductRequest $request): RedirectResponse
     {
         $data = CreateProductData::fromRequest($request->validated());
+
+        // Ensure unique barcode — append suffix if collision
+        if ($data->barcode && \App\Models\Product::withTrashed()->where('barcode', $data->barcode)->exists()) {
+            $base = $data->barcode;
+            $n = 1;
+            while (\App\Models\Product::withTrashed()->where('barcode', $base . '-' . $n)->exists()) {
+                $n++;
+            }
+            $data = new \App\Domains\Products\DTOs\CreateProductData(
+                name: $data->name,
+                sku: $data->sku,
+                barcode: $base . '-' . $n,
+                categoryId: $data->categoryId,
+                description: $data->description,
+                baseUnitId: $data->baseUnitId,
+                trackInventory: $data->trackInventory,
+                lowStockThreshold: $data->lowStockThreshold,
+                stockQuantity: $data->stockQuantity,
+                defaultPurchaseCost: $data->defaultPurchaseCost,
+                supplierName: $data->supplierName,
+                location: $data->location,
+                createdBy: $data->createdBy,
+                sellingUnits: $data->sellingUnits,
+                purchaseConfig: $data->purchaseConfig,
+            );
+        }
 
         // Ensure unique SKU — append suffix if collision
         if (\App\Models\Product::withTrashed()->where('sku', $data->sku)->exists()) {
@@ -125,13 +156,14 @@ class ProductController extends Controller
     {
         $product = $this->productService->get($id);
 
-        return Inertia::render('inventory/ProductForm', [
+        return Inertia::render('inventory/EditProduct', [
             'product' => $product->toArray(),
             'categories' => $this->productService->allCategories(),
+            'products' => $this->productService->search(perPage: 999)->items(),
         ]);
     }
 
-    public function update(CreateProductRequest $request, int $id): RedirectResponse
+    public function update(UpdateProductRequest $request, int $id): RedirectResponse
     {
         $product = $this->productService->update($id, $request->validated());
 
@@ -152,5 +184,47 @@ class ProductController extends Controller
         $name = request('name', '');
         $sku = $this->productService->generateSku($name);
         return response()->json(['sku' => $sku]);
+    }
+
+    /**
+     * Preview derived selling units from packaging levels without persisting.
+     * Used by the frontend packaging builder to show real-time preview.
+     */
+    public function previewPackaging(): JsonResponse
+    {
+        $data = request()->validate([
+            'packaging' => 'required|array',
+            'packaging.*.container_unit_id' => 'required|integer|exists:product_units,id',
+            'packaging.*.contains_unit_id' => 'required|integer|exists:product_units,id',
+            'packaging.*.quantity' => 'required|numeric|min:0.01',
+            'packaging.*.level' => 'required|integer|min:1',
+        ]);
+
+        $preview = $this->derivationEngine->preview($data['packaging']);
+
+        return response()->json([
+            'success' => true,
+            'data' => $preview->values(),
+        ]);
+    }
+
+    /**
+     * List all product units (for autocomplete).
+     */
+    public function productUnits(): JsonResponse
+    {
+        $search = request('search', '');
+        $query = \App\Models\ProductUnit::query();
+
+        if ($search) {
+            $query->where('name', 'like', "%{$search}%");
+        }
+
+        $units = $query->orderBy('name')->take(20)->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $units,
+        ]);
     }
 }

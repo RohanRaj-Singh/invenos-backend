@@ -9,7 +9,7 @@ class SaleItem extends Model
     protected $fillable = [
         'sale_id', 'product_id', 'product_name', 'selling_unit_id',
         'packaging_name', 'packaging_quantity', 'base_unit_quantity', 'base_quantity',
-        'unit_price', 'total', 'discount_pct', 'category', 'restock',
+        'unit_price', 'cost_price', 'total', 'discount_pct', 'category', 'restock',
     ];
     protected $casts = [
         'packaging_quantity' => 'float', 'base_unit_quantity' => 'float',

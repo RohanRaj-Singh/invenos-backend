@@ -1,26 +1,28 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { router, usePage } from '@inertiajs/react'
 import { toast } from 'sonner'
-import { Save, ChevronDown, ChevronUp, Search, Plus, Sparkles, Trash2, Settings2, Beaker } from 'lucide-react'
+import { Save, ChevronDown, ChevronUp, Search, Plus, Settings2, Beaker } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
-import SessionCounter from './SessionCounter'
 import { getUnit, getBaseUnitOptions, getDefaultUnitForCategory } from '@/lib/units'
 import { calculateMargin } from '@/lib/product-adapter'
-import type { Product, SellingUnit, Ingredient } from '@/types'
+import PackagingLevelsBuilder from './PackagingLevelsBuilder'
+import type { SellingUnit, PackagingLevel, PackagingPreviewUnit } from '@/types'
 
-// ── Category configuration ──
+interface ProductFormProps {
+  mode: 'create' | 'edit'
+  categories: any[]
+  product?: Record<string, any> | null
+  generatedSku?: string
+}
+
+// ── Helpers ──
 
 const CATEGORY_PREFIX_MAP: Record<string, string> = {
-  Medicine: 'MED',
-  Groceries: 'GRO',
-  Cosmetics: 'COS',
-  Skincare: 'SKN',
-  'Mobile Accessories': 'MOB',
-  Electronics: 'ELE',
-  'Clinic Supplies': 'SUP',
+  Medicine: 'MED', Groceries: 'GRO', Cosmetics: 'COS', Skincare: 'SKN',
+  'Mobile Accessories': 'MOB', Electronics: 'ELE', 'Clinic Supplies': 'SUP',
 }
 
 function getCategoryPrefix(category: string): string {
@@ -28,668 +30,322 @@ function getCategoryPrefix(category: string): string {
 }
 
 function generateSku(category: string, sequence: number): string {
-  const prefix = getCategoryPrefix(category)
-  return `${prefix}-${String(sequence).padStart(3, '0')}`
+  return getCategoryPrefix(category) + '-' + String(sequence).padStart(3, '0')
 }
 
-// ── Category search combobox (Desktop) ──
-
-function CategoryCombobox({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (v: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const categories = (usePage().props as any).categories || []
-
-  const filtered = useMemo(() => {
-    if (!search) return categories
-    return categories.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
-  }, [search, categories])
-
-  const showCreate = search.trim().length > 0 &&
-    !categories.some((c) => c.name.toLowerCase() === search.trim().toLowerCase())
-
-  // Close on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (
-        panelRef.current && !panelRef.current.contains(e.target as Node) &&
-        inputRef.current && !inputRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-
-  return (
-    <div className="relative">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="Search category..."
-          value={open ? search : value}
-          onChange={(e) => {
-            setSearch(e.target.value)
-            if (!open) setOpen(true)
-          }}
-          onFocus={() => { setOpen(true); setSearch('') }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && open && filtered.length > 0) {
-              e.preventDefault(); e.stopPropagation()
-              const sel = filtered[0]
-              if (sel) { onChange(sel.name); setOpen(false); setSearch('') }
-            }
-            if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); setSearch('') }
-          }}
-          className="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-        />
-      </div>
-      {open && (
-        <div
-          ref={panelRef}
-          className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto"
-        >
-          {filtered.length > 0 && (
-            <div className="py-1">
-              {filtered.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(cat.name)
-                    setOpen(false)
-                    setSearch('')
-                  }}
-                  className={cn(
-                    'w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors',
-                    value === cat.name && 'bg-primary/5 text-primary'
-                  )}
-                >
-                  <span>{cat.name}</span>
-                  <span className="text-[10px] text-muted-foreground">{cat.productCount} products</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {showCreate && (
-            <button
-              type="button"
-              onClick={() => {
-                onChange(search.trim())
-                setOpen(false)
-                setSearch('')
-              }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary/5 transition-colors border-t border-border"
-            >
-              <Plus className="size-3.5" />
-              Create &quot;{search.trim()}&quot;
-            </button>
-          )}
-          {!showCreate && filtered.length === 0 && (
-            <div className="px-3 py-2 text-sm text-muted-foreground">No categories found</div>
-          )}
-        </div>
-      )}
-    </div>
-  )
+/** Check whether a unit ID represents a measurement type (weight/volume/length). */
+function isMeasurementUnit(unitId: string): boolean {
+  const unit = getUnit(unitId)
+  return unit?.measurementType === 'weight' || unit?.measurementType === 'volume' || unit?.measurementType === 'length'
 }
 
-// ── Bottom Sheet category picker (Mobile) ──
-
-function CategorySheet({
-  value,
-  onChange,
-  children,
-}: {
-  value: string
-  onChange: (v: string) => void
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const categories = (usePage().props as any).categories || []
-
-  const filtered = useMemo(() => {
-    if (!search) return categories
-    return categories.filter((c) => c.name.toLowerCase().includes(search.toLowerCase()))
-  }, [search, categories])
-
-  const showCreate = search.trim().length > 0 &&
-    !categories.some((c) => c.name.toLowerCase() === search.trim().toLowerCase())
-
-  return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <div onClick={() => setOpen(true)}>{children}</div>
-      <SheetContent side="bottom" className="max-h-[70vh]">
-        <SheetHeader>
-          <SheetTitle>Select Category</SheetTitle>
-        </SheetHeader>
-        <div className="px-4 pb-4">
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search category..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && filtered.length > 0) {
-                  e.preventDefault(); onChange(filtered[0].name); setOpen(false); setSearch('')
-                }
-              }}
-            />
-          </div>
-          <div className="space-y-1 max-h-[40vh] overflow-y-auto">
-            {filtered.map((cat) => (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  onChange(cat.name)
-                  setOpen(false)
-                  setSearch('')
-                }}
-                className={cn(
-                  'w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                  value === cat.name
-                    ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
-                    : 'text-foreground hover:bg-muted'
-                )}
-              >
-                <span>{cat.name}</span>
-                <span className="text-[10px] text-muted-foreground">{cat.productCount} products</span>
-              </button>
-            ))}
-            {showCreate && (
-              <button
-                type="button"
-                onClick={() => {
-                  onChange(search.trim())
-                  setOpen(false)
-                  setSearch('')
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-primary hover:bg-primary/5 transition-colors"
-              >
-                <Plus className="size-3.5" />
-                Create &quot;{search.trim()}&quot;
-              </button>
-            )}
-            {!showCreate && filtered.length === 0 && (
-              <div className="px-3 py-2 text-sm text-muted-foreground">No categories found</div>
-            )}
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
-  )
+/** Check if a unit suggests packaging (count units that aren't Piece). */
+function isPackagingUnit(unitId: string): boolean {
+  const unit = getUnit(unitId)
+  if (!unit || unit.measurementType !== 'count') return false
+  const packagingUnits = ['box', 'carton', 'bottle', 'strip', 'packet', 'sachet', 'roll', 'tray']
+  return packagingUnits.includes(unit.id)
 }
 
-// ── Unit Select Component ──
+// ── Main Component ──
 
-function UnitSelect({
-  value,
-  onChange,
-  measurementType,
-}: {
-  value: string
-  onChange: (v: string) => void
-  measurementType?: 'count' | 'weight' | 'volume' | 'length'
-}) {
-  const baseOptions = getBaseUnitOptions()
-  const filteredGroups = measurementType
-    ? baseOptions.filter((g) => g.label.toLowerCase() === measurementType.toLowerCase())
-    : baseOptions
+export default function ProductForm({ mode, categories = [], product = null, generatedSku }: ProductFormProps) {
+  const isEditing = mode === 'edit'
 
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 appearance-none cursor-pointer"
-    >
-      {filteredGroups.map((group) => (
-        <optgroup key={group.label} label={group.label}>
-          {group.options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-  )
-}
+  // ── Quick Entry state ──
+  const [name, setName] = useState(product?.name || '')
+  const [purchaseCost, setPurchaseCost] = useState(String(product?.default_purchase_cost ?? product?.last_purchase_cost ?? ''))
+  const [sellingPrice, setSellingPrice] = useState(product?.selling_units?.[0]?.sale_price ?? 0)
+  const [baseUnitId, setBaseUnitId] = useState(product?.base_unit_id || 'piece')
 
-// ── Unit Combobox for both sides ──
-function UnitCombobox({ value, onChange, baseUnitId }: { value: string; onChange: (v: string) => void; baseUnitId: string }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
-  const panelRef = useRef<HTMLDivElement>(null)
-  const options = getBaseUnitOptions().flatMap(g => g.options.map(o => ({ id: o.value, label: o.label })))
-  const displayLabel = options.find(o => o.id === value)?.label || value
-  const filtered = useMemo(() => {
-    if (!search) return options.filter(o => o.id !== value)
-    const q = search.toLowerCase()
-    return options.filter(o => o.label.toLowerCase().includes(q) && o.id !== value)
-  }, [search, options, value])
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node) && inputRef.current && !inputRef.current.contains(e.target as Node)) {
-        setOpen(false); setSearch('')
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-  return (
-    <div className="relative">
-      <input ref={inputRef} type="text" value={open ? search : displayLabel}
-        placeholder="Unit"
-        onChange={(e) => { setSearch(e.target.value); if (!open) setOpen(true) }}
-        onFocus={() => { setOpen(true); setSearch('') }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && open && filtered.length > 0) {
-            e.preventDefault(); e.stopPropagation(); onChange(filtered[0].id); setOpen(false); setSearch('')
-          }
-          if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); setSearch('') }
-        }}
-        className="h-8 px-2 rounded border border-input bg-background text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" style={{ width: '72px' }} />
-      {open && (
-        <div ref={panelRef} className="absolute z-50 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto w-36">
-          {filtered.map((o) => (
-            <button key={o.id} type="button" onClick={() => { onChange(o.id); setOpen(false); setSearch('') }}
-              className={cn('w-full px-2.5 py-1.5 text-xs text-left hover:bg-muted transition-colors', o.id === baseUnitId && 'bg-primary/5 text-primary font-medium')}>
-              {o.label} {o.id === baseUnitId ? '(base)' : ''}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Selling Unit Bidirectional Row ──
-interface SellingUnitRowProps {
-  unit: SellingUnit
-  isDefault: boolean
-  costPerBaseUnit: number
-  baseUnitId: string
-  onChange: (unit: SellingUnit) => void
-  onRemove: (() => void) | undefined
-  defaultSalePrice: number
-}
-
-function SellingUnitRow({ unit, isDefault, costPerBaseUnit, baseUnitId, onChange, onRemove, defaultSalePrice }: SellingUnitRowProps) {
-  const aIsBase = unit.unitId === baseUnitId
-  const qty = unit.quantity
-  const cost = qty > 0 ? (aIsBase ? costPerBaseUnit / qty : costPerBaseUnit * qty) : 0
-  const handleAChange = (v: string) => {
-    if (v === baseUnitId && unit.unitId === baseUnitId) return
-    onChange({ ...unit, unitId: v === baseUnitId ? baseUnitId : v })
-  }
-  const handleBChange = (v: string) => {
-    if (v === baseUnitId && unit.unitId === baseUnitId) return
-    onChange({ ...unit, unitId: v === baseUnitId ? baseUnitId : v })
-  }
-  return (
-    <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors min-h-[40px]', isDefault ? 'bg-primary/[0.04]' : 'bg-card hover:bg-muted/20')}>
-      <UnitCombobox value={aIsBase ? baseUnitId : unit.unitId} baseUnitId={baseUnitId} onChange={handleAChange} />
-      <span className="text-[11px] text-muted-foreground shrink-0 text-center w-10">1 =</span>
-      <input type="number" value={qty || ''} placeholder="1" step="any"
-        onChange={(e) => onChange({ ...unit, quantity: parseFloat(e.target.value) || 1 })}
-        className="w-16 h-8 px-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 shrink-0" min="0.001" />
-      <UnitCombobox value={aIsBase ? unit.unitId : baseUnitId} baseUnitId={baseUnitId} onChange={handleBChange} />
-      <div className="w-24 shrink-0 relative">
-        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">Rs.</span>
-        <input type="number" value={unit.salePrice || ''}
-          onChange={(e) => onChange({ ...unit, salePrice: parseFloat(e.target.value) || 0 })}
-          className="w-full h-8 pl-7 pr-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01" />
-      </div>
-      <div className="flex-1 min-w-0 text-xs">
-        {!costPerBaseUnit ? (
-          <span className="text-muted-foreground/60">Add cost</span>
-        ) : !unit.salePrice ? (
-          <span className="text-amber-600 tabular-nums">≈ Rs. {Math.round(defaultSalePrice > 0 ? defaultSalePrice * qty : cost * 1.3)}</span>
-        ) : (
-          (() => { const { profit, marginPercent } = calculateMargin(unit.salePrice, cost); return (
-            <span className={cn('tabular-nums', profit >= 0 ? 'text-emerald-600' : 'text-red-500')}>Cost {Math.round(cost)} · {Math.round(marginPercent)}%</span>
-          )})()
-        )}
-      </div>
-      {onRemove && (
-        <button type="button" onClick={onRemove} className="size-7 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-colors shrink-0">
-          <Trash2 className="size-3" />
-        </button>
-      )}
-    </div>
-  )
-}
-
-// ── Main component ──
-
-export default function ProductForm() {
-  const { props: inertiaProps } = usePage()
-  const categories = (inertiaProps as any).categories || []
-  const mockProducts = (inertiaProps as any).products || []
-
-  // ── Form state ──
-  const [name, setName] = useState('')
-  const [category, setCategory] = useState('')
-  const [barcode, setBarcode] = useState('')
-  const [productType, setProductType] = useState<'simple' | 'composite'>('simple')
-  const [baseUnitId, setBaseUnitId] = useState('piece')
-  const [openingStock, setOpeningStock] = useState('')
-  const [lowStockThreshold] = useState('100')
-  const [sellingUnits, setSellingUnits] = useState<SellingUnit[]>([
-    { id: 'default', name: 'Piece', unitId: 'piece', quantity: 1, salePrice: 0, isDefault: true },
-  ])
-
-  // ── Purchasing & Cost (expandable) ──
+  // ── Extended state (collapsed by default in Quick Entry mode) ──
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [purchaseCost, setPurchaseCost] = useState('')
-
-  // ── Manufacturing (expandable, only for composite) ──
-  const [ingredientSearch, setIngredientSearch] = useState('')
-  const [ingredientSearchOpen, setIngredientSearchOpen] = useState(false)
-  const [ingredients, setIngredients] = useState<{ productId: string; name: string; quantity: string; unitId: string }[]>([])
-  const ingredientSearchRef = useRef<HTMLDivElement>(null)
-
-  // ── Derived values ──
-
-  // Cost per base unit from purchase config
-  const costPerBaseUnit = parseFloat(purchaseCost) || 0
-
-  // Total manufacturing ingredient cost
-  const totalIngredientCost = useMemo(() => {
-    if (ingredients.length === 0) return 0
-    return ingredients.reduce((sum, ing) => {
-      const product = mockProducts.find((p) => p.id === ing.productId)
-      if (!product || !product.purchaseConfig) return sum
-      const ingCostPerUnit = product.purchaseConfig.cost / product.purchaseConfig.quantity
-      return sum + ingCostPerUnit * (parseFloat(ing.quantity) || 0)
-    }, 0)
-  }, [ingredients])
-
-  // Ingredient search results
-  const ingredientSearchResults = useMemo(() => {
-    if (!ingredientSearch.trim()) return []
-    const q = ingredientSearch.toLowerCase()
-    return mockProducts.filter(
-      (p) => p.name.toLowerCase().includes(q) && !ingredients.some((i) => i.productId === p.id)
-    ).slice(0, 20)
-  }, [ingredientSearch, ingredients])
-
-  // SKU
-  const [skuSequence, setSkuSequence] = useState(() => mockProducts.length + 1)
-  const [sku, setSku] = useState('')
-
-  useEffect(() => {
-    if (category) {
-      setSku(generateSku(category, skuSequence))
-      if (!baseUnitId) {
-        setBaseUnitId(getDefaultUnitForCategory(category))
-      }
-    } else {
-      setSku('')
-    }
-  }, [category, skuSequence])
-
-  // Reset selling units when base unit changes
-  useEffect(() => {
-    const unit = getUnit(baseUnitId)
-    if (unit) {
-      setSellingUnits((prev) => {
-        const defaultUnit = prev.find((su) => su.isDefault)
-        return [{
-          id: 'default', name: unit.name, unitId: baseUnitId,
-          quantity: 1, salePrice: defaultUnit?.salePrice ?? 0, isDefault: true,
-        }]
-      })
-    }
-  }, [baseUnitId])
-
-  // Close ingredient search on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (
-        ingredientSearchRef.current && !ingredientSearchRef.current.contains(e.target as Node)
-      ) {
-        setIngredientSearchOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-
-  // ── Additional fields (used in Advanced Details) ──
+  const [category, setCategory] = useState('')
+  const [barcode, setBarcode] = useState(product?.barcode || '')
+  const [sku, setSku] = useState(product?.sku || generatedSku || '')
+  const [openingStock, setOpeningStock] = useState(isEditing ? String(product?.stock_quantity ?? '') : '')
+  const [lowStockThreshold, setLowStockThreshold] = useState(String(product?.low_stock_threshold ?? '100'))
+  const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? true)
   const [description, setDescription] = useState('')
 
-  // ── Session state ──
-  const [sessionCount, setSessionCount] = useState(0)
+  // ── Packaging conversion (inline in Quick Entry for packaging-type units) ──
+  // When user selects a packaging unit (Box, Strip, etc.), this captures
+  // what the unit CONTAINS in base units. E.g. "Strip = 12 Capsules".
+  const [pkgConversionQty, setPkgConversionQty] = useState(1)
+  const [pkgConversionUnitId, setPkgConversionUnitId] = useState('')
 
-  // ── UI state ──
+  // ── Selling units ──
+  const [sellingUnits, setSellingUnits] = useState<SellingUnit[]>(() => {
+    if (product?.selling_units?.length) {
+      return product.selling_units.map((su: any, i: number) => ({
+        id: su.id || `su-${i}`,
+        name: su.name || 'Unit',
+        unitId: su.unit_id || su.unitId || product.base_unit_id || 'piece',
+        quantity: su.quantity || 1,
+        salePrice: su.sale_price ?? su.salePrice ?? 0,
+        isDefault: su.is_default ?? su.isDefault ?? i === 0,
+        productUnitId: su.product_unit_id ?? null,
+        packagingId: su.packaging_id ?? null,
+      }))
+    }
+    // Default: one Piece unit
+    const unit = getUnit('piece')
+    return [{
+      id: 'default',
+      name: unit?.name || 'Piece',
+      unitId: 'piece',
+      quantity: 1,
+      salePrice: 0,
+      isDefault: true,
+      productUnitId: null,
+      packagingId: null,
+    }]
+  })
+
+  // ── Packaging state ──
+  const [packagingLevels, setPackagingLevels] = useState<PackagingLevel[]>(() => {
+    if (product?.packaging?.length) {
+      return product.packaging.map((p: any, i: number) => ({
+        _key: `pl-${p.id || i}`,
+        containerUnitId: p.container_unit_id ?? p.containerUnitId ?? null,
+        containerName: p.container_unit?.name || p.containerName || '',
+        containsUnitId: p.contains_unit_id ?? p.containsUnitId ?? null,
+        containsName: p.contains_unit?.name || p.containsName || '',
+        quantity: p.quantity ?? 1,
+        level: p.level ?? (i + 1),
+      }))
+    }
+    return []
+  })
+  const [previewUnits, setPreviewUnits] = useState<PackagingPreviewUnit[]>([])
+
+  // Reconcile preview units with sale prices
+  const derivedUnits = useMemo(() => {
+    return previewUnits.map((pu) => {
+      const existing = sellingUnits.find((su) => su.productUnitId === pu.product_unit_id)
+      return {
+        ...pu,
+        salePrice: existing?.salePrice ?? pu.sale_price,
+        packagingId: existing?.packagingId ?? null,
+        productUnitId: pu.product_unit_id,
+      }
+    })
+  }, [previewUnits, sellingUnits])
+
+  // ── Session ──
+  const [sessionCount, setSessionCount] = useState(0)
   const [saving, setSaving] = useState(false)
   const nameInputRef = useRef<HTMLInputElement>(null)
+  const [skuSequence, setSkuSequence] = useState<number>(() => (product?.sku ? 0 : (window as any).__inertia_props?.products?.length ?? 0) + 1)
 
-  // Auto-focus name on mount and after save
+  // Auto-focus on mount
   useEffect(() => {
     nameInputRef.current?.focus()
   }, [sessionCount])
 
-  // ── Build payload ──
+  // Sync category from product on edit
+  useEffect(() => {
+    if (product && categories.length > 0) {
+      const catId = product.category_id ?? product.category?.id
+      const cat = categories.find((c: any) => c.id === catId || c.name === product.category?.name)
+      if (cat) setCategory(cat.name)
+    }
+  }, [])
 
-  const buildPayload = useCallback((currentSku: string) => {
-    const stockQty = parseInt(openingStock) || 0
-    const categoryThreshold = parseInt(lowStockThreshold) || 100
+  // Auto-generate SKU when category changes (only for create)
+  useEffect(() => {
+    if (!isEditing && category) {
+      setSku(generateSku(category, skuSequence))
+    }
+  }, [category, skuSequence, isEditing])
 
-    const newSellingUnits = sellingUnits.map((su) => ({
-      name: su.name || 'Single',
-      quantity: su.quantity || 1,
-      sale_price: su.salePrice || 0,
-      is_default: su.isDefault || false,
-    }))
+  // When base unit changes: update the default selling unit name.
+  // For packaging-type units, we wait for the inline conversion row instead.
+  useEffect(() => {
+    if (isPackagingUnit(baseUnitId)) return
 
-    if (newSellingUnits.length === 0) {
-      newSellingUnits.push({
-        name: 'Single',
-        quantity: 1,
-        sale_price: 0,
-        is_default: true,
+    const unit = getUnit(baseUnitId)
+    if (unit) {
+      setSellingUnits((prev) => {
+        const def = prev.find((su) => su.isDefault)
+        if (def) {
+          return prev.map((su) =>
+            su.isDefault ? { ...su, name: unit.name, unitId: baseUnitId, quantity: 1 } : su
+          )
+        }
+        return prev
       })
     }
+  }, [baseUnitId])
 
-    const selectedCategoryId = categories.find((c: any) => c.name === category)?.id || null
+  // When packaging conversion row is filled, sync it into the default selling unit.
+  // E.g., user selects Strip as unit, then says "= 12 Capsules" → selling unit
+  // becomes "Strip (qty: 12, unit: capsule)". Also updates baseUnitId to the
+  // selected base unit so stock is tracked correctly.
+  useEffect(() => {
+    if (!isPackagingUnit(baseUnitId) || !pkgConversionUnitId || pkgConversionQty <= 0) return
+
+    const unit = getUnit(baseUnitId)
+    const baseUnit = getUnit(pkgConversionUnitId)
+    if (!unit || !baseUnit) return
+
+    setSellingUnits((prev) => {
+      const def = prev.find((su) => su.isDefault)
+      if (def) {
+        return prev.map((su) =>
+          su.isDefault ? {
+            ...su,
+            name: unit.name,
+            unitId: pkgConversionUnitId,
+            quantity: pkgConversionQty,
+          } : su
+        )
+      }
+      return prev
+    })
+  }, [pkgConversionQty, pkgConversionUnitId, baseUnitId])
+
+  // ── Cost per base unit ──
+  const costPerBaseUnit = parseFloat(purchaseCost) || 0
+
+  // ── Detect product scenario ──
+  const productScenario = useMemo<'simple' | 'measurement' | 'packaging'>(() => {
+    if (isMeasurementUnit(baseUnitId)) return 'measurement'
+    if (isPackagingUnit(baseUnitId)) return 'packaging'
+    return 'simple'
+  }, [baseUnitId])
+
+  // ── Build payload ──
+
+  const buildPayload = useCallback(() => {
+    const stockQty = parseFloat(openingStock) || 0
+    const catId = categories.find((c: any) => c.name === category)?.id || null
+
+    // Merge derived preview units + custom selling units
+    const mergedSellingUnits = [
+      ...derivedUnits.map((du) => ({
+        name: du.name,
+        quantity: du.quantity,
+        sale_price: du.salePrice ?? 0,
+        is_default: false,
+        product_unit_id: du.productUnitId,
+      })),
+      ...sellingUnits
+        .filter((su) => !su.packagingId && !derivedUnits.some((du) => du.productUnitId === su.productUnitId))
+        .map((su) => ({
+          name: su.name,
+          quantity: su.quantity,
+          sale_price: su.salePrice,
+          is_default: su.isDefault,
+          product_unit_id: su.productUnitId ?? null,
+        })),
+    ]
+
+    // Ensure at least one default
+    if (mergedSellingUnits.length === 0 || !mergedSellingUnits.some((su) => su.is_default)) {
+      if (mergedSellingUnits.length > 0) mergedSellingUnits[0].is_default = true
+      else {
+        const unit = getUnit(baseUnitId)
+        mergedSellingUnits.push({
+          name: unit?.name || 'Piece',
+          quantity: 1,
+          sale_price: sellingPrice,
+          is_default: true,
+          product_unit_id: null,
+        })
+      }
+    }
 
     return {
       name: name.trim(),
-      sku: currentSku,
-      category_id: selectedCategoryId,
+      sku: sku || (category ? generateSku(category, skuSequence) : `PRD-${String(skuSequence).padStart(3, '0')}`),
+      category_id: catId,
       barcode: barcode || '',
       description: description || '',
-      product_type: productType !== 'simple' ? productType : 'simple',
+      product_type: 'simple',
       base_unit_id: baseUnitId,
-      selling_units: newSellingUnits,
+      selling_units: mergedSellingUnits,
+      packaging: packagingLevels
+        .filter((pl) => pl.containerUnitId && pl.containsUnitId && pl.quantity > 0)
+        .map((pl) => ({
+          container_unit_id: pl.containerUnitId,
+          contains_unit_id: pl.containsUnitId,
+          quantity: pl.quantity,
+          level: pl.level,
+        })),
       stock_quantity: stockQty,
-      low_stock_threshold: categoryThreshold,
+      low_stock_threshold: parseInt(lowStockThreshold) || 100,
       default_purchase_cost: purchaseCost ? parseFloat(purchaseCost) : null,
+      allow_negative_stock: allowNegativeStock,
       status: stockQty === 0 ? 'out-of-stock' : 'in-stock',
     }
-  }, [name, category, barcode, productType, baseUnitId, openingStock, lowStockThreshold, sellingUnits, purchaseCost, categories])
+  }, [
+    name, sku, skuSequence, category, barcode, description, baseUnitId,
+    sellingUnits, packagingLevels, derivedUnits, sellingPrice,
+    openingStock, lowStockThreshold, purchaseCost, allowNegativeStock, categories,
+  ])
 
-  // ── Save & Add Next ──
+  // ── Save handlers ──
 
-  const handleSaveAndAddNext = useCallback(() => {
+  const validate = useCallback((): boolean => {
     if (!name.trim()) {
       toast.error('Product name is required')
       nameInputRef.current?.focus()
-      return
+      return false
     }
+    return true
+  }, [name])
 
-    if (sellingUnits.length === 0 || sellingUnits.every((su) => !su.salePrice || su.salePrice <= 0)) {
-      toast.error('At least one selling unit with a sale price is required')
-      return
-    }
+  const handleSave = useCallback((stay = false) => {
+    if (!validate()) return
 
     setSaving(true)
+    const payload = buildPayload()
+    const fullPayload: Record<string, any> = { ...payload, _stay: stay }
+    if (product?.id) {
+      fullPayload._product_id = product.id
+    }
 
-    const currentSku = sku || (category ? generateSku(category, skuSequence) : `PRD-${String(skuSequence).padStart(3, '0')}`)
-    const payload = { ...buildPayload(currentSku), _stay: true }
+    const url = product?.id ? `/inventory/product/${product.id}` : '/inventory'
+    const method = product?.id ? 'put' as const : 'post' as const
 
-    router.post('/inventory', payload, {
+    router[method](url, fullPayload, {
       onSuccess: () => {
-        toast.success(`${name.trim()} saved ✓`)
-        const newSeq = skuSequence + 1
-        setSkuSequence(newSeq)
-        setSessionCount((c) => c + 1)
-        setName('')
-        setOpeningStock('')
-        setIngredients([])
+        toast.success(`${name.trim()} ${isEditing ? 'updated' : 'saved'} ✓`)
+        if (stay && !isEditing) {
+          setSkuSequence((s) => s + 1)
+          setSessionCount((c) => c + 1)
+          setName('')
+          setOpeningStock('')
+          setPackagingLevels([])
+          setPreviewUnits([])
+          setSellingUnits([{
+            id: 'default', name: getUnit(baseUnitId)?.name || 'Piece', unitId: baseUnitId,
+            quantity: 1, salePrice: 0, isDefault: true, productUnitId: null, packagingId: null,
+          }])
+          setTimeout(() => nameInputRef.current?.focus(), 0)
+        }
         setSaving(false)
-        setTimeout(() => nameInputRef.current?.focus(), 0)
       },
-      onError: (errors) => {
-        const messages = Object.values(errors).join(', ')
-        toast.error(messages || 'Failed to create product')
+      onError: (errs) => {
+        const msg = Object.values(errs).join(', ') || 'Failed to save product'
+        toast.error(msg)
         setSaving(false)
       },
     })
-  }, [name, sku, skuSequence, category, sellingUnits, buildPayload])
+  }, [name, isEditing, baseUnitId, validate, buildPayload, product?.id])
 
-  // ── Save & Open ──
-
-  const handleSaveAndOpen = useCallback(() => {
-    if (!name.trim()) {
-      toast.error('Product name is required')
-      nameInputRef.current?.focus()
-      return
+  // ── Keyboard ──
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      e.preventDefault()
+      handleSave(true)
     }
-
-    if (sellingUnits.length === 0 || sellingUnits.every((su) => !su.salePrice || su.salePrice <= 0)) {
-      toast.error('At least one selling unit with a sale price is required')
-      return
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault()
+      handleSave(false)
     }
-
-    setSaving(true)
-
-    const currentSku = sku || (category ? generateSku(category, skuSequence) : `PRD-${String(skuSequence).padStart(3, '0')}`)
-    const payload = buildPayload(currentSku)
-
-    router.post('/inventory', payload, {
-      onSuccess: () => {
-        setSessionCount((c) => c + 1)
-        toast.success(`${name.trim()} saved ✓`)
-        setSaving(false)
-      },
-      onError: (errors) => {
-        const messages = Object.values(errors).join(', ')
-        toast.error(messages || 'Failed to create product')
-        setSaving(false)
-      },
-    })
-  }, [name, sku, skuSequence, category, sellingUnits, buildPayload])
-
-  // ── Keyboard handling ──
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        e.preventDefault()
-        handleSaveAndAddNext()
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-        e.preventDefault()
-        handleSaveAndOpen()
-      }
-    },
-    [handleSaveAndAddNext, handleSaveAndOpen]
-  )
-
-  // ── Template chips for selling units ──
-  // quantity = "how many of this selling unit fit in 1 base unit"
-  const sellingUnitTemplates = useMemo(() => {
-    const unit = getUnit(baseUnitId)
-    const mt = unit?.measurementType
-    if (mt === 'weight') {
-      // Base unit is KG or Gram — templates in terms of "per 1 kg" or "per 1000g"
-      const perKg = baseUnitId === 'kg' ? 1 : 1000
-      return [
-        { name: '50g Pack', quantity: 1000 / 50 },
-        { name: '100g Pack', quantity: 1000 / 100 },
-        { name: '250g Pack', quantity: 1000 / 250 },
-        { name: '500g Pack', quantity: 1000 / 500 },
-        { name: '1kg Pack', quantity: perKg },
-      ]
-    }
-    if (mt === 'volume') {
-      const perLiter = baseUnitId === 'liter' ? 1 : 1000
-      return [
-        { name: '100ml', quantity: 1000 / 100 },
-        { name: '250ml', quantity: 1000 / 250 },
-        { name: '500ml', quantity: 1000 / 500 },
-        { name: '1 Liter', quantity: perLiter },
-      ]
-    }
-    if (mt === 'length') {
-      const perMeter = baseUnitId === 'meter' ? 1 : 100
-      return [
-        { name: '10cm', quantity: 100 / 10 },
-        { name: '50cm', quantity: 100 / 50 },
-        { name: '1m', quantity: perMeter },
-        { name: '5m', quantity: 1 / 5 },
-      ]
-    }
-    return [
-      { name: 'Half ' + (unit?.name || 'Unit'), quantity: 2 },
-      { name: (unit?.name || 'Unit') + ' (same)', quantity: 1 },
-      { name: 'Double ' + (unit?.name || 'Unit'), quantity: 1 / 2 },
-      { name: 'Quarter ' + (unit?.name || 'Unit'), quantity: 1 / 0.25 },
-    ]
-  }, [baseUnitId])
-
-  // ── Selling unit helpers ──
-
-  const addSellingUnit = useCallback((templateName?: string, templateQty?: number) => {
-    const unit = getUnit(baseUnitId)
-    const newId = `su-${Date.now()}`
-    const name = templateName || unit?.name || 'Piece'
-    const qty = templateQty || 1
-    const suggestedPrice = costPerBaseUnit > 0 ? Math.round(costPerBaseUnit * qty * 1.3) : 0
-    const newUnit: SellingUnit = {
-      id: newId,
-      name,
-      unitId: baseUnitId,
-      quantity: qty,
-      salePrice: suggestedPrice,
-      isDefault: false,
-    }
-    setSellingUnits((prev) => [...prev, newUnit])
-  }, [baseUnitId, costPerBaseUnit])
-
-  const updateSellingUnit = useCallback((updated: SellingUnit) => {
-    setSellingUnits((prev) => prev.map((su) => (su.id === updated.id ? updated : su)))
-  }, [])
-
-  const removeSellingUnit = useCallback((id: string) => {
-    setSellingUnits((prev) => prev.filter((su) => su.id !== id))
-  }, [])
-
-  // ── Product type toggle ──
-
-  const handleProductTypeChange = useCallback((type: 'simple' | 'composite') => {
-    setProductType(type)
-  }, [])
+  }, [handleSave])
 
   // ── Render ──
 
@@ -698,10 +354,22 @@ export default function ProductForm() {
       {/* ── Header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Add Product</h1>
+          {isEditing && product && (
+            <p className="text-xs text-muted-foreground mb-0.5">
+              Editing: {product.name} · SKU: {product.sku}
+            </p>
+          )}
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+            {isEditing ? 'Edit Product' : 'Add Product'}
+          </h1>
         </div>
         <div className="flex items-center gap-2">
-          <SessionCounter count={sessionCount} />
+          <Button size="sm" variant="outline" onClick={() => handleSave(true)} disabled={saving} className="gap-1.5 hidden sm:inline-flex">
+            <Save className="size-3.5" /> Save &amp; Add Next
+          </Button>
+          <Button size="sm" onClick={() => handleSave(false)} disabled={saving} className="gap-1.5 shadow-sm">
+            <Save className="size-3.5" /> {saving ? 'Saving...' : 'Save'}
+          </Button>
         </div>
       </div>
 
@@ -709,136 +377,137 @@ export default function ProductForm() {
       <Card>
         <CardContent className="p-4 sm:p-6 space-y-5" onKeyDown={handleKeyDown}>
           {/* ════════════════════════════════════════════════ */}
-          {/* QUICK ENTRY (always visible, 95% of use case) */}
+          {/* QUICK ENTRY — always visible, 90% of use case */}
           {/* ════════════════════════════════════════════════ */}
 
           {/* Product Name */}
-          <FormField label="Product Name" required>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-foreground">
+              Product Name <span className="text-red-500">*</span>
+            </label>
             <input
               ref={nameInputRef}
               type="text"
-                placeholder="e.g. Enter product name"
+              placeholder="e.g. Enter product name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full h-12 px-4 rounded-lg border border-input bg-background text-base outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 transition-shadow"
             />
-          </FormField>
-
-          {/* Category + Barcode */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Category">
-              <div className="hidden sm:block">
-                <CategoryCombobox value={category} onChange={setCategory} />
-              </div>
-              <div className="sm:hidden">
-                <CategorySheet value={category} onChange={setCategory}>
-                  <button type="button" className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm text-left outline-none focus:border-ring focus:ring-1 focus:ring-ring/30">
-                    {category || <span className="text-muted-foreground">Select category</span>}
-                  </button>
-                </CategorySheet>
-              </div>
-            </FormField>
-
-            <FormField label="Barcode (optional)">
-              <input
-                type="text" placeholder="e.g. 8901234567" value={barcode}
-                onChange={(e) => setBarcode(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 font-mono"
-              />
-            </FormField>
           </div>
 
-          {/* Purchase Price + Sale Price */}
+          {/* Cost Price + Selling Price */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Your Cost">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">Your Cost (Rs.)</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">Rs.</span>
-                <input
-                  type="number" placeholder="0" value={purchaseCost}
+                <input type="number" placeholder="0" value={purchaseCost}
                   onChange={(e) => setPurchaseCost(e.target.value)}
-                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01"
-                />
+                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01" />
               </div>
-            </FormField>
-
-            <FormField label="Selling Price" required>
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">
+                Selling Price (Rs.) <span className="text-red-500">*</span>
+              </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">Rs.</span>
-                <input
-                  type="number" placeholder="0"
-                  value={sellingUnits[0]?.salePrice || ''}
-                  onChange={(e) => updateSellingUnit({ ...sellingUnits[0], salePrice: parseFloat(e.target.value) || 0 })}
-                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01"
-                />
+                <input type="number" placeholder="0" value={sellingPrice}
+                  onChange={(e) => {
+                    setSellingPrice(parseFloat(e.target.value) || 0)
+                    setSellingUnits((prev) => prev.map((su, i) =>
+                      i === 0 ? { ...su, salePrice: parseFloat(e.target.value) || 0 } : su
+                    ))
+                  }}
+                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01" />
               </div>
-              {(!sellingUnits[0]?.salePrice || sellingUnits[0].salePrice <= 0) && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">Set your selling price</p>
+              {sellingPrice <= 0 && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">Set your selling price</p>
               )}
-            </FormField>
-          </div>
-
-          {/* Product Type — small pills */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Type:</span>
-            <div className="flex rounded-lg border border-input overflow-hidden">
-              <button type="button" onClick={() => handleProductTypeChange('simple')}
-                className={cn('px-3 py-1.5 text-xs font-medium transition-colors', productType === 'simple' ? 'bg-primary text-primary-foreground' : 'bg-background text-foreground hover:bg-muted')}>
-                I Buy &amp; Sell
-              </button>
-              <button type="button" onClick={() => handleProductTypeChange('composite')}
-                className={cn('px-3 py-1.5 text-xs font-medium transition-colors border-l border-input', productType === 'composite' ? 'bg-primary text-primary-foreground' : 'bg-background text-foreground hover:bg-muted')}>
-                I Make It
-              </button>
             </div>
           </div>
 
-          {/* Starting Quantity + Unit */}
+          {/* Unit + Category (Unit always visible, Category is full-width in quick entry) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Starting Quantity">
-              <input
-                type="number" placeholder="0" value={openingStock}
-                onChange={(e) => setOpeningStock(e.target.value)}
-                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0"
-              />
-            </FormField>
-
-            <FormField label="Unit">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">Unit</label>
               <UnitSelect value={baseUnitId} onChange={setBaseUnitId} />
-            </FormField>
+            </div>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-foreground">Category</label>
+              <CategorySelector categories={categories} value={category} onChange={setCategory} />
+            </div>
           </div>
 
-          {/* Selling Unit — always visible, defaults to base unit */}
-          {(() => {
-            const defaultSU = sellingUnits[0]
-            const defaultName = defaultSU?.name || getUnit(baseUnitId)?.name || baseUnitId
-            const isDifferent = defaultSU && (defaultSU.name !== getUnit(baseUnitId)?.name && defaultSU.quantity !== 1)
-            return (
-              <div className="flex items-center gap-3 text-sm">
-                <span className="text-muted-foreground text-xs">Sold as:</span>
-                <span className="font-medium text-foreground">{defaultName}</span>
-                {isDifferent && (
-                  <span className="text-xs text-muted-foreground">
-                    ({Number(defaultSU.quantity.toFixed(4))} {getUnit(baseUnitId)?.name || baseUnitId} each)
+          {/* Scenario: packaging-type unit (Box, Strip, Carton…) */}
+          {productScenario === 'packaging' && (
+            <div className="space-y-2 px-3 py-3 rounded-lg bg-primary/[0.04]">
+              <div className="text-xs font-medium text-foreground">
+                Selling in <span className="font-semibold">{getUnit(baseUnitId)?.name || baseUnitId}</span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted-foreground">Each {getUnit(baseUnitId)?.name || baseUnitId}</span>
+                <span className="text-muted-foreground">=</span>
+                <input
+                  type="number"
+                  value={pkgConversionQty || ''}
+                  onChange={(e) => setPkgConversionQty(parseFloat(e.target.value) || 0)}
+                  placeholder="Qty"
+                  min="0.01"
+                  step="any"
+                  className="w-16 h-8 px-2 rounded border border-input bg-background text-xs text-center outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
+                />
+                <span className="text-xs text-muted-foreground">×</span>
+                <InlineUnitSelect
+                  value={pkgConversionUnitId}
+                  onChange={(id) => {
+                    setPkgConversionUnitId(id)
+                    // Also update the product base_unit_id so stock is tracked correctly
+                    if (id) {
+                      // This is handled by the useEffect above which syncs into sellingUnits
+                    }
+                  }}
+                  placeholder="unit"
+                  excludeId={baseUnitId}
+                />
+              </div>
+              <div className="flex items-center gap-3 text-xs">
+                {pkgConversionUnitId && pkgConversionQty > 0 ? (
+                  <span className="text-muted-foreground">
+                    ✓ {getUnit(baseUnitId)?.name || baseUnitId} × {pkgConversionQty} {getUnit(pkgConversionUnitId)?.name || pkgConversionUnitId} per unit
                   </span>
+                ) : (
+                  <span className="text-muted-foreground/60">Define what each {getUnit(baseUnitId)?.name || baseUnitId} contains</span>
                 )}
-                <button type="button" onClick={() => setAdvancedOpen(true)} className="text-xs text-primary hover:underline">
-                  {isDifferent ? 'Change' : 'Add sizes'}
+                <button type="button" onClick={() => setAdvancedOpen(true)}
+                  className="text-primary underline ml-auto">
+                  Multi-level packaging
                 </button>
               </div>
-            )
-          })()}
+            </div>
+          )}
+          {productScenario === 'measurement' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/[0.04] text-xs text-muted-foreground">
+              <span>⚙️</span>
+              <span>Measurement product — selling in {baseUnitId} and sub-units is automatic</span>
+            </div>
+          )}
+
+          {productScenario === 'simple' && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 text-xs text-muted-foreground">
+              <span>•</span>
+              <span>Selling as {getUnit(baseUnitId)?.name || baseUnitId}</span>
+            </div>
+          )}
 
           <SectionDivider />
 
           {/* ════════════════════════════════════════════════ */}
-          {/* ADVANCED OPTIONS (collapsed) */}
+          {/* MORE OPTIONS (collapsed) */}
           {/* ════════════════════════════════════════════════ */}
           <section>
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen(!advancedOpen)}
-              className="w-full flex items-center justify-between py-1 group"
-            >
+            <button type="button" onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="w-full flex items-center justify-between py-1 group">
               <div className="flex items-center gap-2">
                 <Settings2 className="size-4 text-muted-foreground group-hover:text-foreground transition-colors" />
                 <span className="text-sm font-medium text-foreground">More Options</span>
@@ -849,163 +518,155 @@ export default function ProductForm() {
             {advancedOpen && (
               <div className="mt-4 space-y-5 pt-4 border-t border-border">
 
-                {/* ── Selling Sizes ── */}
+                {/* ── Barcode + SKU ── */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-foreground">Barcode</label>
+                    <input type="text" placeholder="Optional" value={barcode}
+                      onChange={(e) => setBarcode(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 font-mono" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-foreground">SKU</label>
+                    <input type="text" placeholder="Auto-generated" value={sku}
+                      onChange={(e) => setSku(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 font-mono text-xs" />
+                  </div>
+                </div>
+
+                {/* ── Stock ── */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-foreground">
+                      {isEditing ? 'Current Stock' : 'Starting Quantity'}
+                    </label>
+                    {isEditing ? (
+                      <div className="w-full h-10 px-3 rounded-lg border border-input bg-muted text-sm leading-10">
+                        {product?.stock_quantity ?? 0} {getUnit(baseUnitId)?.name || baseUnitId}
+                      </div>
+                    ) : (
+                      <input type="number" placeholder="0" value={openingStock}
+                        onChange={(e) => setOpeningStock(e.target.value)}
+                        className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-medium text-foreground">Minimum Stock</label>
+                    <input type="number" placeholder="10" value={lowStockThreshold}
+                      onChange={(e) => setLowStockThreshold(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
+                  </div>
+                </div>
+
+                {/* ── Packaging Levels (only for packaging-type units) ── */}
+                {(productScenario === 'packaging' || packagingLevels.length > 0) && (
+                  <div className="pt-1">
+                    <PackagingLevelsBuilder
+                      levels={packagingLevels}
+                      onChange={setPackagingLevels}
+                      baseUnitId={baseUnitId}
+                      onPreview={setPreviewUnits}
+                      disabled={false}
+                    />
+                  </div>
+                )}
+
+                {/* ── Selling Sizes (manual custom units) ── */}
                 <div>
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                     Selling Sizes
                   </h4>
 
-                  {/* Template suggestion chips */}
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <span className="text-[10px] text-muted-foreground shrink-0">Quick Add:</span>
-                    <div className="flex flex-wrap gap-1.5">
-                    {sellingUnitTemplates.map((tmpl) => {
-                      const existing = sellingUnits.find(su => su.name === tmpl.name)
-                      return (
-                        <button
-                          key={tmpl.name}
-                          type="button"
-                          disabled={!!existing}
-                          onClick={() => addSellingUnit(tmpl.name, tmpl.quantity)}
-                          className={cn(
-                            'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium transition-colors',
-                            existing
-                              ? 'border-border bg-muted/30 text-muted-foreground/50 cursor-default'
-                              : 'border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
-                          )}
-                        >
-                          {existing ? '✓ ' : '+ '}{tmpl.name}
-                        </button>
-                      )
-                    })}
-                    </div>
-                  </div>
-
-                  {/* Column headers */}
-                  {sellingUnits.length > 1 && (
-                    <div className="flex items-center gap-2 px-3 text-[10px] text-muted-foreground uppercase tracking-wider">
-                      <span className="w-[72px] shrink-0">Unit</span>
-                      <span className="w-10 shrink-0" />
-                      <span className="w-16 shrink-0" />
-                      <span className="w-[72px] shrink-0">Unit</span>
-                      <span className="w-24 shrink-0">Price</span>
-                      <span className="flex-1">Cost &amp; Profit</span>
-                      <span className="w-7 shrink-0" />
+                  {derivedUnits.length > 0 && (
+                    <div className="mb-3 space-y-1">
+                      <p className="text-[10px] text-muted-foreground">Auto-generated from packaging:</p>
+                      {derivedUnits.map((du) => (
+                        <DerivedUnitRow
+                          key={du.product_unit_id}
+                          unit={du}
+                          sellingUnit={sellingUnits.find((su) => su.productUnitId === du.product_unit_id)}
+                          onPriceChange={(price) => {
+                            setSellingUnits((prev) => {
+                              const existing = prev.find((su) => su.productUnitId === du.product_unit_id)
+                              if (existing) {
+                                return prev.map((su) =>
+                                  su.productUnitId === du.product_unit_id ? { ...su, salePrice: price } : su
+                                )
+                              }
+                              const unit = getUnit(baseUnitId)
+                              return [...prev, {
+                                id: `su-${du.product_unit_id}`,
+                                name: du.name,
+                                unitId: baseUnitId,
+                                quantity: du.quantity,
+                                salePrice: price,
+                                isDefault: prev.length === 0,
+                                productUnitId: du.product_unit_id,
+                                packagingId: du.packagingId ?? null,
+                              }]
+                            })
+                          }}
+                        />
+                      ))}
                     </div>
                   )}
 
-                  <div className="space-y-1">
-                    {sellingUnits.map((su, idx) => (
+                  {/* Manual custom selling units */}
+                  {sellingUnits
+                    .filter((su) => !su.packagingId && !derivedUnits.some((du) => du.productUnitId === su.productUnitId))
+                    .map((su, idx) => (
                       <SellingUnitRow
                         key={su.id}
                         unit={su}
-                        isDefault={idx === 0}
+                        isDefault={idx === 0 && derivedUnits.length === 0}
                         costPerBaseUnit={costPerBaseUnit}
                         baseUnitId={baseUnitId}
-                        onChange={updateSellingUnit}
-                        onRemove={idx > 0 ? () => removeSellingUnit(su.id) : undefined}
-                        defaultSalePrice={sellingUnits[0]?.salePrice || 0}
+                        onChange={(updated) => setSellingUnits((prev) =>
+                          prev.map((s) => (s.id === updated.id ? updated : s))
+                        )}
+                        onRemove={idx > 0 || derivedUnits.length > 0 ? () => {
+                          setSellingUnits((prev) => prev.filter((s) => s.id !== su.id))
+                        } : undefined}
+                        defaultSalePrice={sellingPrice}
                       />
                     ))}
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => addSellingUnit()}
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
-                  >
-                    <Plus className="size-3.5" />
-                    Add Another Size
+                  <button type="button" onClick={() => {
+                    const unit = getUnit(baseUnitId)
+                    setSellingUnits((prev) => [...prev, {
+                      id: `su-${Date.now()}`,
+                      name: unit?.name || 'Piece',
+                      unitId: baseUnitId,
+                      quantity: 1,
+                      salePrice: 0,
+                      isDefault: prev.length === 0 && derivedUnits.length === 0,
+                      productUnitId: null,
+                      packagingId: null,
+                    }])
+                  }} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
+                    <Plus className="size-3.5" /> Add Custom Size
                   </button>
                 </div>
 
-                {/* ── Manufacturing (only for composite) ── */}
-                {productType === 'composite' && (
-                  <>
-                    <SectionDivider />
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                        <Beaker className="size-3.5" /> Manufacturing
-                      </h4>
-                      <div ref={ingredientSearchRef} className="relative mb-3">
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-                          <input type="text" placeholder="Search product to add as ingredient..."
-                            value={ingredientSearch}
-                            onChange={(e) => { setIngredientSearch(e.target.value); if (!ingredientSearchOpen) setIngredientSearchOpen(true) }}
-                            onFocus={() => setIngredientSearchOpen(true)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && ingredientSearchOpen && ingredientSearchResults.length > 0) {
-                                e.preventDefault(); e.stopPropagation()
-                                const prod = ingredientSearchResults[0]
-                                setIngredients([...ingredients, { productId: prod.id, name: prod.name, quantity: '1', unitId: prod.baseUnitId || 'piece' }])
-                                setIngredientSearch(''); setIngredientSearchOpen(false)
-                              }
-                              if (e.key === 'Escape' && ingredientSearchOpen) { e.stopPropagation(); setIngredientSearchOpen(false) }
-                            }}
-                            className="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
-                        </div>
-                        {ingredientSearchOpen && ingredientSearch.trim() && (
-                          <div className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                            {ingredientSearchResults.length > 0 ? (
-                              <div className="py-1">
-                                {ingredientSearchResults.map((product) => (
-                                  <button key={product.id} type="button"
-                                    onClick={() => { setIngredients([...ingredients, { productId: product.id, name: product.name, quantity: '1', unitId: product.baseUnitId || 'piece' }]); setIngredientSearch(''); setIngredientSearchOpen(false) }}
-                                    className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors">
-                                    <span className="font-medium">{product.name}</span>
-                                    <span className="text-[10px] text-muted-foreground">{getUnit(product.baseUnitId)?.name || product.baseUnitId}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            ) : <div className="px-3 py-2 text-sm text-muted-foreground">No matching products</div>}
-                          </div>
-                        )}
-                      </div>
-                      {ingredients.length > 0 && (
-                        <div className="space-y-2">
-                          {ingredients.map((ing, idx) => (
-                            <div key={ing.productId} className="flex items-center gap-2 rounded-xl border border-border bg-card p-3">
-                              <p className="flex-1 text-sm font-medium text-foreground truncate min-w-0">{ing.name}</p>
-                              <input type="number" placeholder="Qty" value={ing.quantity}
-                                onChange={(e) => { const updated = [...ingredients]; updated[idx] = { ...updated[idx], quantity: e.target.value }; setIngredients(updated) }}
-                                className="w-20 h-8 px-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="any" />
-                              <UnitSelect value={ing.unitId}
-                                onChange={(v) => { const updated = [...ingredients]; updated[idx] = { ...updated[idx], unitId: v }; setIngredients(updated) }} />
-                              <button type="button" onClick={() => setIngredients(ingredients.filter((_, i) => i !== idx))}
-                                className="size-8 flex items-center justify-center text-muted-foreground hover:text-red-500 transition-colors shrink-0"><Trash2 className="size-3.5" /></button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {totalIngredientCost > 0 && (
-                        <div className="mt-3 rounded-lg bg-muted/40 border border-border/50 px-4 py-3">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Estimated ingredient cost</span>
-                            <span className="font-semibold text-foreground tabular-nums">Rs. {totalIngredientCost.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {/* ── Details ── */}
+                {/* ── Negative Stock ── */}
                 <SectionDivider />
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Details</h4>
-                  <div className="space-y-4">
-                    <FormField label="Product Code (auto-generated)">
-                      <input type="text" placeholder="Will be filled automatically" value={sku}
-                        onChange={(e) => setSku(e.target.value)}
-                        className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 font-mono" />
-                    </FormField>
-                    <FormField label="Description">
-                      <textarea placeholder="Optional product description..." value={description}
-                        onChange={(e) => setDescription(e.target.value)} rows={2}
-                        className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 resize-none" />
-                    </FormField>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" checked={allowNegativeStock}
+                    onChange={(e) => setAllowNegativeStock(e.target.checked)}
+                    className="size-4 rounded border-gray-300 accent-primary focus:ring-primary/30" />
+                  <div>
+                    <span className="text-sm font-medium text-foreground">Allow Negative Stock</span>
+                    <p className="text-[11px] text-muted-foreground">Permit sales when stock is insufficient.</p>
                   </div>
+                </label>
+
+                {/* ── Description ── */}
+                <SectionDivider />
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-foreground">Description</label>
+                  <textarea placeholder="Optional product description..." value={description}
+                    onChange={(e) => setDescription(e.target.value)} rows={2}
+                    className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 resize-none" />
                 </div>
               </div>
             )}
@@ -1013,27 +674,21 @@ export default function ProductForm() {
 
           {/* ── Sticky Save Bar ── */}
           <div className="sticky bottom-0 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-card border-t border-border mt-6 flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:justify-between z-10">
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={handleSaveAndOpen}
-              disabled={saving}
-              className="sm:order-1 gap-1.5"
-            >
-              <Save className="size-4" />
-              Save &amp; View
-              <kbd className="hidden sm:inline-flex items-center justify-center size-4 rounded bg-muted text-[10px] font-mono">⌘⏎</kbd>
-            </Button>
-            <Button
-              size="lg"
-              onClick={handleSaveAndAddNext}
-              disabled={saving}
-              className="gap-1.5 shadow-sm"
-            >
-              <Sparkles className="size-4" />
-              Save &amp; Add Another
-              <kbd className="hidden sm:inline-flex items-center justify-center size-4 rounded bg-primary-foreground/20 text-[10px] font-mono">↵</kbd>
-            </Button>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <kbd className="inline-flex items-center justify-center size-5 rounded bg-muted text-[10px] font-mono">↵</kbd>
+              <span>Save &amp; Add Next</span>
+              <span className="mx-1.5">·</span>
+              <kbd className="inline-flex items-center justify-center size-5 rounded bg-muted text-[10px] font-mono">⌘↵</kbd>
+              <span>Save &amp; View</span>
+            </div>
+            <div className="flex items-stretch sm:items-center gap-2">
+              <Button variant="outline" size="lg" onClick={() => handleSave(false)} disabled={saving} className="gap-1.5 flex-1 sm:flex-initial">
+                <Save className="size-4" /> Save &amp; View
+              </Button>
+              <Button size="lg" onClick={() => handleSave(true)} disabled={saving} className="gap-1.5 shadow-sm flex-1 sm:flex-initial">
+                <Save className="size-4" /> Save &amp; Add Next
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1041,16 +696,231 @@ export default function ProductForm() {
   )
 }
 
-// ── Shared components ──
+// ── Sub-components ──
 
-function FormField({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function UnitSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const allOptions = getBaseUnitOptions().flatMap((g: any) => g.options.map((o: any) => ({ id: o.value, label: o.label })))
+  const filtered = useMemo(() => {
+    if (!search) return allOptions.filter(o => o.id !== value)
+    return allOptions.filter(o => o.label.toLowerCase().includes(search.toLowerCase()) && o.id !== value)
+  }, [search, allOptions, value])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node) && inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
   return (
-    <div className="space-y-1.5">
-      <label className="block text-xs font-medium text-foreground">
-        {label}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
-      </label>
-      {children}
+    <div className="relative">
+      <input ref={inputRef} type="text" value={open ? search : (allOptions.find(o => o.id === value)?.label || value)}
+        placeholder="Unit" onChange={e => { setSearch(e.target.value); if (!open) setOpen(true) }}
+        onFocus={() => { setOpen(true); setSearch('') }}
+        className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
+      {open && (
+        <div ref={panelRef} className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto">
+          {filtered.map((o) => (
+            <button key={o.id} type="button" onClick={() => { onChange(o.id); setOpen(false); setSearch('') }}
+              className={cn('w-full px-3 py-2 text-sm text-left hover:bg-muted transition-colors', o.id === value && 'bg-primary/5 text-primary font-medium')}>
+              {o.label}
+            </button>
+          ))}
+          {!search && filtered.length === 0 && (
+            <div className="px-3 py-2 text-xs text-muted-foreground">No units</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CategorySelector({ categories, value, onChange }: { categories: any[]; value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const filtered = useMemo(() => !search ? categories : categories.filter((c: any) => c.name.toLowerCase().includes(search.toLowerCase())), [search, categories])
+  const showCreate = search.trim().length > 0 && !categories.some((c: any) => c.name.toLowerCase() === search.trim().toLowerCase())
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node) && inputRef.current && !inputRef.current.contains(e.target as Node)) { setOpen(false) }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div className="relative">
+      <input ref={inputRef} type="text" placeholder="Search category..." value={open ? search : value}
+        onChange={e => { setSearch(e.target.value); if (!open) setOpen(true) }}
+        onFocus={() => { setOpen(true); setSearch('') }}
+        className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring" />
+      {open && (
+        <div ref={panelRef} className="absolute z-50 mt-1 w-full bg-popover border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+          {filtered.map((c: any) => (
+            <button key={c.id} type="button" onClick={() => { onChange(c.name); setOpen(false); setSearch('') }}
+              className={cn('w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-muted transition-colors', value === c.name && 'bg-primary/5 text-primary')}>
+              <span>{c.name}</span>
+              <span className="text-[10px] text-muted-foreground">{c.productCount || 0}</span>
+            </button>
+          ))}
+          {showCreate && (
+            <button type="button" onClick={() => { onChange(search.trim()); setOpen(false); setSearch('') }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-primary/5 border-t border-border">
+              <Plus className="size-3.5" /> Create "{search.trim()}"
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface SellingUnitRowProps {
+  unit: SellingUnit
+  isDefault: boolean
+  costPerBaseUnit: number
+  baseUnitId: string
+  onChange: (u: SellingUnit) => void
+  onRemove?: () => void
+  defaultSalePrice: number
+}
+
+function SellingUnitRow({ unit, isDefault, costPerBaseUnit, baseUnitId, onChange, onRemove, defaultSalePrice }: SellingUnitRowProps) {
+  const baseName = getUnit(baseUnitId)?.name || baseUnitId || 'unit'
+  const cost = costPerBaseUnit * (unit.quantity || 1)
+  const margin = unit.salePrice > 0 ? calculateMargin(unit.salePrice, cost) : null
+
+  return (
+    <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors min-h-[40px]', isDefault ? 'bg-primary/[0.04]' : 'bg-card hover:bg-muted/20')}>
+      {/* Pack name */}
+      <input type="text" value={unit.name} onChange={e => onChange({ ...unit, name: e.target.value })}
+        className="w-20 h-8 px-2 rounded border border-input bg-background text-xs outline-none focus:border-ring shrink-0" placeholder="Name" />
+
+      <span className="text-[11px] text-muted-foreground shrink-0">×</span>
+
+      {/* Quantity */}
+      <input type="number" value={unit.quantity || 1} onChange={e => onChange({ ...unit, quantity: parseFloat(e.target.value) || 1 })}
+        className="w-16 h-8 px-2 rounded border border-input bg-background text-xs text-right outline-none focus:border-ring"
+        min="0.001" step="any" />
+
+      <span className="text-[11px] text-muted-foreground whitespace-nowrap truncate">{baseName}</span>
+
+      {/* Price */}
+      <div className="w-24 shrink-0 relative ml-auto">
+        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">Rs.</span>
+        <input type="number" value={unit.salePrice || ''}
+          onChange={e => onChange({ ...unit, salePrice: parseFloat(e.target.value) || 0 })}
+          className="w-full h-8 pl-7 pr-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus:border-ring" min="0" step="0.01" />
+      </div>
+
+      <div className="flex-1 min-w-0 text-xs">
+        {!costPerBaseUnit ? (
+          <span className="text-muted-foreground/60">—</span>
+        ) : !unit.salePrice ? (
+          <span className="text-amber-600 tabular-nums">≈ Rs. {Math.round(cost * 1.3)}</span>
+        ) : margin ? (
+          <span className={cn('tabular-nums', margin.profit >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+            {Math.round(margin.marginPercent)}%
+          </span>
+        ) : null}
+      </div>
+
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="size-7 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 transition-colors shrink-0">
+          <span className="text-lg leading-none">×</span>
+        </button>
+      )}
+    </div>
+  )
+}
+
+function DerivedUnitRow({
+  unit,
+  sellingUnit,
+  onPriceChange,
+}: {
+  unit: { name: string; quantity: number; salePrice: number; product_unit_id: number }
+  sellingUnit?: SellingUnit
+  onPriceChange: (price: number) => void
+}) {
+  const currentPrice = sellingUnit?.salePrice ?? unit.salePrice ?? 0
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/[0.03] text-sm">
+      <span className="font-medium text-foreground text-xs min-w-[60px]">{unit.name}</span>
+      <span className="text-[11px] text-muted-foreground">= {unit.quantity} base units</span>
+      <div className="w-24 shrink-0 relative ml-auto">
+        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">Rs.</span>
+        <input type="number" value={currentPrice || ''}
+          onChange={(e) => onPriceChange(parseFloat(e.target.value) || 0)}
+          className="w-full h-8 pl-7 pr-2 rounded border border-input bg-background text-xs tabular-nums outline-none focus:border-ring" min="0" step="0.01"
+          placeholder="Set price" />
+      </div>
+      <span className="text-[10px] text-muted-foreground shrink-0">(generated)</span>
+    </div>
+  )
+}
+
+function InlineUnitSelect({
+  value,
+  onChange,
+  placeholder = 'unit',
+  excludeId,
+}: {
+  value: string
+  onChange: (id: string) => void
+  placeholder?: string
+  excludeId?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const allOptions = getBaseUnitOptions().flatMap((g: any) => g.options.map((o: any) => ({ id: o.value, label: o.label })))
+  const filtered = useMemo(() => {
+    if (!search) return allOptions.filter(o => o.id !== value && o.id !== excludeId)
+    return allOptions.filter(o => o.label.toLowerCase().includes(search.toLowerCase()) && o.id !== value && o.id !== excludeId)
+  }, [search, allOptions, value, excludeId])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node) && inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        setOpen(false); setSearch('')
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  return (
+    <div className="relative">
+      <input ref={inputRef} type="text" value={open ? search : (allOptions.find(o => o.id === value)?.label || value)}
+        placeholder={placeholder} onChange={e => { setSearch(e.target.value); if (!open) setOpen(true) }}
+        onFocus={() => { setOpen(true); setSearch('') }}
+        className="w-24 h-8 px-2 rounded border border-input bg-background text-xs outline-none focus:border-ring" />
+      {open && (
+        <div ref={panelRef} className="absolute z-50 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto w-36">
+          {filtered.map((o) => (
+            <button key={o.id} type="button" onClick={() => { onChange(o.id); setOpen(false); setSearch('') }}
+              className={cn('w-full px-2.5 py-1.5 text-xs text-left hover:bg-muted transition-colors', o.id === value && 'bg-primary/5 text-primary')}>
+              {o.label}
+            </button>
+          ))}
+          {filtered.length === 0 && !search && (
+            <div className="px-2.5 py-1.5 text-xs text-muted-foreground">Type to search</div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

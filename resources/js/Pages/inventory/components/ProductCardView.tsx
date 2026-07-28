@@ -16,6 +16,7 @@ interface BackendProduct {
   selling_units: any[]
   last_purchase_cost?: number | null
   default_purchase_cost?: number | null
+  base_unit_id?: string
 }
 
 interface ProductCardViewProps {
@@ -83,7 +84,7 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                       product.stock_quantity === 0 && 'text-red-500',
                       product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
                     )}>
-                      {product.stock_quantity} units
+                      {product.stock_quantity} {product.base_unit_id || 'units'}
                     </div>
                   </div>
                   <div className="rounded-lg bg-muted/50 px-2.5 py-2">

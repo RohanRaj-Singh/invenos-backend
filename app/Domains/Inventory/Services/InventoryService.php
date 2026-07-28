@@ -167,6 +167,7 @@ class InventoryService
         int $productId,
         float $quantity,
         string $type = 'adjustment',
+        ?string $reference = null,
         ?string $notes = null,
         ?string $referenceType = null,
         ?int $referenceId = null,
@@ -179,6 +180,7 @@ class InventoryService
             quantity: $quantity,
             packagingName: $packagingName,
             packagingQuantity: $packagingQuantity,
+            reference: $reference,
             notes: $notes,
             referenceType: $referenceType ?? 'manual',
             referenceId: $referenceId,
@@ -203,8 +205,13 @@ class InventoryService
         // Lock the product row for concurrency safety
         $product = Product::lockForUpdate()->findOrFail($productId);
 
+        // Determine if this is a reversal transaction (reference prefixed with REV- should always be allowed)
+        $isReversal = $reference !== null && str_starts_with($reference, 'REV-');
+        // Determine if negative stock is allowed for this product
+        $productAllowsNegative = $product->allow_negative_stock ?? app(\App\Domains\Settings\Services\SettingService::class)->get()['inventory']['allow_negative_stock'] ?? false;
+
         // Prevent negative stock for sales (unless allowed)
-        if ($quantity < 0 && $product->stock_quantity + $quantity < 0 && !($product->track_inventory === false)) {
+        if ($quantity < 0 && $product->stock_quantity + $quantity < 0 && !$isReversal && !$productAllowsNegative && !($product->track_inventory === false)) {
             throw new \InvalidArgumentException("Insufficient stock for product '{$product->name}' (available: {$product->stock_quantity}, requested: " . abs($quantity) . ")");
         }
 
@@ -215,7 +222,10 @@ class InventoryService
         // Recalculate status
         if ($newStock <= 0) {
             $product->status = 'out-of-stock';
-            $product->stock_quantity = max(0, $newStock);
+            // Only clamp to 0 if negative stock is NOT allowed
+            if (!$productAllowsNegative && !$isReversal) {
+                $product->stock_quantity = max(0, $newStock);
+            }
         } elseif ($newStock <= $product->low_stock_threshold) {
             $product->status = 'low-stock';
         } else {
@@ -231,7 +241,7 @@ class InventoryService
             'packaging_name' => $packagingName,
             'packaging_quantity' => $packagingQuantity,
             'date' => now()->format('Y-m-d'),
-            'reference' => $reference,
+            'reference' => $reference ?? 'ADJ-' . now()->format('ymd') . '-' . random_int(1000, 9999),
             'notes' => $notes,
             'user' => $user,
             'running_balance' => $product->stock_quantity,

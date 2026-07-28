@@ -10,7 +10,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { TransactionType, InventoryTransaction } from '@/types'
-import { TRANSACTION_CONFIG, groupTransactionsByDate, getDateGroupLabel } from '@/lib/inventory-engine'
+import { TRANSACTION_CONFIG, groupTransactionsByDate } from '@/lib/inventory-engine'
 
 const iconMap: Record<string, LucideIcon> = {
   PackagePlus, TrendingDown, Undo2, BarChart3, AlertTriangle, FlaskConical, ArrowRightLeft,
@@ -18,6 +18,18 @@ const iconMap: Record<string, LucideIcon> = {
 
 interface InventoryTimelineProps {
   transactions: InventoryTransaction[]
+}
+
+function fmtDate(dateStr: string): string {
+  if (!dateStr) return ''
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return dateStr
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
+  } catch {
+    return dateStr
+  }
 }
 
 export default function InventoryTimeline({ transactions }: InventoryTimelineProps) {
@@ -44,16 +56,19 @@ export default function InventoryTimeline({ transactions }: InventoryTimelinePro
         <div key={dateStr}>
           <div className="flex items-center gap-2 mb-3">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              {getDateGroupLabel(dateStr)}
+              {fmtDate(dateStr)}
             </div>
             <div className="h-px flex-1 bg-border" />
-            <div className="text-[10px] text-muted-foreground tabular-nums">{dateStr}</div>
+            <div className="text-[10px] text-muted-foreground tabular-nums">{fmtDate(dateStr)}</div>
           </div>
           <div className="space-y-1">
             {txns.map((txn, idx) => {
               const config = TRANSACTION_CONFIG[txn.type]
               const Icon = iconMap[txn.type] || PackagePlus
               const isLast = idx === txns.length - 1
+              const qty = txn.quantity ?? 0
+              const unit = txn.unit || 'units'
+              const bal = txn.runningBalance ?? 0
 
               return (
                 <div key={txn.id} className="relative flex gap-3 group pl-1">
@@ -72,9 +87,9 @@ export default function InventoryTimeline({ transactions }: InventoryTimelinePro
                         <div className="flex items-center gap-2">
                           <span className={cn(
                             'text-sm font-semibold',
-                            txn.quantity > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
+                            qty > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
                           )}>
-                            {txn.quantity > 0 ? '+' : ''}{Math.abs(txn.quantity).toLocaleString()} {txn.unit}
+                            {qty > 0 ? '+' : ''}{Math.abs(qty).toLocaleString()} {unit}
                           </span>
                           <span className="text-xs font-medium text-foreground/70 bg-muted px-1.5 py-0.5 rounded">
                             {config?.label || txn.type}
@@ -87,9 +102,9 @@ export default function InventoryTimeline({ transactions }: InventoryTimelinePro
                       </div>
                       <div className="text-right shrink-0">
                         <span className="text-xs font-semibold text-foreground tabular-nums">
-                          {txn.runningBalance.toLocaleString()}
+                          {Number.isFinite(bal) ? bal.toLocaleString() : '0'}
                         </span>
-                        <p className="text-[10px] text-muted-foreground">{txn.user}</p>
+                        <p className="text-[10px] text-muted-foreground">{txn.user || ''}</p>
                       </div>
                     </div>
                   </div>
@@ -105,12 +120,13 @@ export default function InventoryTimeline({ transactions }: InventoryTimelinePro
 
 function SummaryBadge({ label, amount, type }: { label: string; amount: number; type: TransactionType }) {
   const config = TRANSACTION_CONFIG[type]
+  const amt = amount ?? 0
   return (
     <span className={cn(
       'inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium',
       config.inflow ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
     )}>
-      <span>{config.inflow ? '+' : '-'}{amount.toLocaleString()}</span>
+      <span>{config.inflow ? '+' : '-'}{Math.abs(amt).toLocaleString()}</span>
       <span className="text-muted-foreground">{label}</span>
     </span>
   )

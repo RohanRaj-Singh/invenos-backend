@@ -92,6 +92,13 @@ class SaleService
             foreach ($data->items as $itemData) {
                 $product = Product::lockForUpdate()->findOrFail($itemData->productId);
 
+                // Recalculate base quantity server-side (never trust client conversions)
+                $baseQty = $itemData->packagingQuantity * $itemData->baseUnitQuantity;
+
+                // Calculate COGS using best-available-cost fallback
+                $costPrice = $product->last_purchase_cost ?? $product->default_purchase_cost ?? 0;
+                $cogs = $costPrice * $baseQty;
+
                 SaleItem::create([
                     'sale_id' => $sale->id,
                     'product_id' => $product->id,
@@ -99,17 +106,17 @@ class SaleService
                     'packaging_name' => $itemData->packagingName ?? 'Unit',
                     'packaging_quantity' => $itemData->packagingQuantity,
                     'base_unit_quantity' => $itemData->baseUnitQuantity,
-                    'base_quantity' => $itemData->baseQuantity,
+                    'base_quantity' => $baseQty,
                     'unit_price' => $itemData->unitPrice,
+                    'cost_price' => $cogs,
                     'total' => $itemData->total,
                     'discount_pct' => $itemData->discountPct,
                     'category' => $itemData->category ?: ($product->category?->name ?? ''),
                 ]);
 
-                // Delegate stock movement to InventoryService
                 $this->inventoryService->recordSale(
                     productId: $product->id,
-                    quantity: $itemData->baseQuantity,
+                    quantity: $baseQty,
                     packagingName: $itemData->packagingName,
                     packagingQuantity: $itemData->packagingQuantity,
                     reference: $data->invoiceNumber,
@@ -136,7 +143,27 @@ class SaleService
 
     public function delete(int $id): ?bool
     {
-        return Sale::findOrFail($id)->delete();
+        return DB::transaction(function () use ($id) {
+            $sale = Sale::with('items', 'customer')->findOrFail($id);
+
+            foreach ($sale->items as $item) {
+                $this->inventoryService->recordAdjustment(
+                    productId: $item->product_id,
+                    quantity: $item->base_quantity,
+                    reference: 'REV-' . $sale->invoice_number,
+                    notes: "Reversal of sale {$sale->invoice_number}",
+                    referenceType: 'sale',
+                    referenceId: $sale->id,
+                );
+            }
+
+            if ($sale->customer && $sale->grand_total > 0) {
+                $sale->customer->current_balance = max(0, ($sale->customer->current_balance ?? 0) - $sale->grand_total);
+                $sale->customer->save();
+            }
+
+            return $sale->delete();
+        });
     }
 
     public function restore(int $id): Sale

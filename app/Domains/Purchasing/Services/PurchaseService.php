@@ -148,7 +148,28 @@ class PurchaseService
 
     public function delete(int $id): ?bool
     {
-        return PurchaseBill::findOrFail($id)->delete();
+        return DB::transaction(function () use ($id) {
+            $bill = PurchaseBill::with('items', 'supplier')->findOrFail($id);
+
+            foreach ($bill->items as $item) {
+                $baseQuantity = $item->purchase_pack_qty * $item->purchase_quantity;
+                $this->inventoryService->recordAdjustment(
+                    productId: $item->product_id,
+                    quantity: -$baseQuantity,
+                    reference: 'REV-' . $bill->invoice_ref,
+                    notes: "Reversal of purchase {$bill->invoice_ref}",
+                    referenceType: 'purchase',
+                    referenceId: $bill->id,
+                );
+            }
+
+            if ($bill->supplier && $bill->total_amount > 0) {
+                $bill->supplier->current_balance = max(0, ($bill->supplier->current_balance ?? 0) - $bill->total_amount);
+                $bill->supplier->save();
+            }
+
+            return $bill->delete();
+        });
     }
 
     public function restore(int $id): PurchaseBill
