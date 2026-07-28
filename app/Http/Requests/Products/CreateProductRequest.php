@@ -15,7 +15,7 @@ class CreateProductRequest extends FormRequest
     {
         return [
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:100|unique:products,sku',
+            'sku' => 'required|string|max:100',
             'barcode' => 'nullable|string|max:100|unique:products,barcode',
             'category_id' => 'nullable|integer|exists:product_categories,id',
             'description' => 'nullable|string|max:2000',
@@ -24,6 +24,8 @@ class CreateProductRequest extends FormRequest
             'low_stock_threshold' => 'nullable|numeric|min:0',
             'supplier_name' => 'nullable|string|max:255',
             'location' => 'nullable|string|max:100',
+            'stock_quantity' => 'nullable|numeric|min:0',
+            'default_purchase_cost' => 'nullable|numeric|min:0',
             'selling_units' => 'nullable|array',
             'selling_units.*.name' => 'required_with:selling_units|string|max:100',
             'selling_units.*.sale_price' => 'required_with:selling_units|numeric|min:0',

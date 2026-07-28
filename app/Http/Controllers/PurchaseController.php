@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Domains\Purchasing\DTOs\CreatePurchaseData;
 use App\Domains\Purchasing\Services\PurchaseService;
+use App\Domains\Settings\Services\SettingService;
 use App\Http\Requests\Purchases\CreatePurchaseRequest;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -43,7 +44,7 @@ class PurchaseController extends Controller
     public function create(): Response
     {
         $products = \App\Models\Product::with('sellingUnits')->orderBy('name')->get()->toArray();
-        $suppliers = \App\Models\Contact::whereJsonContains('roles', 'supplier')->orderBy('name')->get(['id', 'name', 'phone', 'email'])->toArray();
+        $suppliers = \App\Models\Contact::whereJsonContains('roles', 'supplier')->orderBy('name')->get(['id', 'name', 'phone', 'email', 'current_balance', 'opening_balance', 'balance_type'])->toArray();
 
         return Inertia::render('purchases/PurchaseBill', [
             'products' => $products,
@@ -69,6 +70,17 @@ class PurchaseController extends Controller
         return Inertia::render('purchases/PurchaseDetail', [
             'purchase' => $purchase->toArray(),
             'returns' => $returns,
+        ]);
+    }
+
+    public function printBill(int $id): Response
+    {
+        $purchase = $this->purchaseService->get($id);
+        $settings = app(SettingService::class)->get();
+
+        return Inertia::render('purchases/PurchasePrint', [
+            'purchase' => $purchase->toArray(),
+            'settings' => $settings,
         ]);
     }
 

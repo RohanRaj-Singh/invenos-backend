@@ -50,7 +50,39 @@ class ProductController extends Controller
     public function store(CreateProductRequest $request): RedirectResponse
     {
         $data = CreateProductData::fromRequest($request->validated());
+
+        // Ensure unique SKU — append suffix if collision
+        if (\App\Models\Product::withTrashed()->where('sku', $data->sku)->exists()) {
+            $base = $data->sku;
+            $n = 1;
+            while (\App\Models\Product::withTrashed()->where('sku', $base . '-' . $n)->exists()) {
+                $n++;
+            }
+            $data = new \App\Domains\Products\DTOs\CreateProductData(
+                name: $data->name,
+                sku: $base . '-' . $n,
+                barcode: $data->barcode,
+                categoryId: $data->categoryId,
+                description: $data->description,
+                baseUnitId: $data->baseUnitId,
+                trackInventory: $data->trackInventory,
+                lowStockThreshold: $data->lowStockThreshold,
+                stockQuantity: $data->stockQuantity,
+                defaultPurchaseCost: $data->defaultPurchaseCost,
+                supplierName: $data->supplierName,
+                location: $data->location,
+                createdBy: $data->createdBy,
+                sellingUnits: $data->sellingUnits,
+                purchaseConfig: $data->purchaseConfig,
+            );
+        }
+
         $product = $this->productService->create($data);
+
+        if ($request->boolean('_stay')) {
+            return redirect()->route('inventory.create')
+                ->with('success', "{$product->name} saved ✓");
+        }
 
         return redirect()->route('inventory.show', $product->id)
             ->with('success', 'Product created successfully.');
@@ -67,9 +99,25 @@ class ProductController extends Controller
             ->get()
             ->toArray();
 
+        $purchases = \App\Models\PurchaseBillItem::with('purchaseBill.supplier')
+            ->where('product_id', $id)
+            ->orderBy('created_at', 'desc')
+            ->take(20)
+            ->get()
+            ->toArray();
+
+        $sales = \App\Models\SaleItem::with('sale.customer')
+            ->where('product_id', $id)
+            ->orderBy('created_at', 'desc')
+            ->take(20)
+            ->get()
+            ->toArray();
+
         return Inertia::render('inventory/ProductDetails', [
             'product' => $product->toArray(),
             'movements' => $movements,
+            'purchases' => $purchases,
+            'sales' => $sales,
         ]);
     }
 

@@ -12,6 +12,10 @@ class Contact extends Model
     /** @use HasFactory<ContactFactory> */
     use HasFactory, SoftDeletes;
 
+    protected $attributes = [
+        'current_balance' => 0,
+    ];
+
     protected $fillable = [
         'type', 'roles', 'name', 'company_name', 'contact_person',
         'phone', 'email', 'cnic', 'address', 'opening_balance',

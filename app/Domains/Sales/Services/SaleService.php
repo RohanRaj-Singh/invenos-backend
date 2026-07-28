@@ -4,7 +4,7 @@ namespace App\Domains\Sales\Services;
 
 use App\Domains\Sales\DTOs\CreateSaleData;
 use App\Models\Contact;
-use App\Models\InventoryTransaction;
+use App\Domains\Inventory\Services\InventoryService;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -13,9 +13,13 @@ use Illuminate\Support\Facades\DB;
 
 class SaleService
 {
+    public function __construct(
+        private readonly InventoryService $inventoryService,
+    ) {}
+
     public function search(string $query = '', ?int $customerId = null, ?string $paymentStatus = null, int $perPage = 25): LengthAwarePaginator
     {
-        $q = Sale::with('customer')->where('invoice_number', 'not like', 'RET-%');
+        $q = Sale::with('customer')->withCount('items')->where('invoice_number', 'not like', 'RET-%');
 
         if ($query) {
             $q->where(function ($q) use ($query) {
@@ -37,10 +41,32 @@ class SaleService
 
     public function create(CreateSaleData $data): Sale
     {
+        if (empty($data->items)) {
+            throw new \InvalidArgumentException('Sale must have at least one item.');
+        }
+
         return DB::transaction(function () use ($data) {
-            $customer = Contact::findOrFail($data->customerId);
-            if (!in_array('customer', $customer->roles ?? [])) {
-                throw new \InvalidArgumentException('Contact must have the customer role.');
+            // Resolve customer — 0 means walk-in
+            $customer = null;
+            if ($data->customerId > 0) {
+                $customer = Contact::lockForUpdate()->findOrFail($data->customerId);
+                if (!in_array('customer', $customer->roles ?? [])) {
+                    throw new \InvalidArgumentException('Contact must have the customer role.');
+                }
+            }
+
+            // Validate items before any creation
+            foreach ($data->items as $itemData) {
+                if ($itemData->baseQuantity <= 0) {
+                    throw new \InvalidArgumentException(
+                        "Invalid quantity for product '{$itemData->productName}'."
+                    );
+                }
+                if ($itemData->unitPrice < 0) {
+                    throw new \InvalidArgumentException(
+                        "Unit price cannot be negative for '{$itemData->productName}'."
+                    );
+                }
             }
 
             $subtotal = array_sum(array_map(fn ($item) => $item->total, $data->items));
@@ -51,8 +77,8 @@ class SaleService
                 'invoice_number' => $data->invoiceNumber,
                 'source' => $data->source,
                 'date' => $data->date,
-                'customer_id' => $data->customerId,
-                'customer_name' => $data->customerName ?: $customer->name,
+                'customer_id' => $data->customerId > 0 ? $data->customerId : null,
+                'customer_name' => $data->customerName ?: ($customer?->name ?? 'Walk-in Customer'),
                 'subtotal' => $subtotal,
                 'discount' => $data->discount,
                 'grand_total' => $grandTotal,
@@ -64,15 +90,7 @@ class SaleService
             ]);
 
             foreach ($data->items as $itemData) {
-                $product = Product::findOrFail($itemData->productId);
-
-                // Validate stock
-                if ($product->track_inventory && $product->stock_quantity < $itemData->baseQuantity) {
-                    throw new \RuntimeException(
-                        "Insufficient stock for {$product->name}: " .
-                        "requested {$itemData->baseQuantity}, available {$product->stock_quantity}"
-                    );
-                }
+                $product = Product::lockForUpdate()->findOrFail($itemData->productId);
 
                 SaleItem::create([
                     'sale_id' => $sale->id,
@@ -88,26 +106,23 @@ class SaleService
                     'category' => $itemData->category ?: ($product->category?->name ?? ''),
                 ]);
 
-                // Inventory transaction (outflow)
-                $newBalance = $product->stock_quantity - $itemData->baseQuantity;
-                InventoryTransaction::create([
-                    'product_id' => $product->id,
-                    'type' => 'sale',
-                    'quantity' => -$itemData->baseQuantity,
-                    'unit' => $product->base_unit_id,
-                    'date' => $data->date,
-                    'reference' => $data->invoiceNumber,
-                    'notes' => "Sale to {$data->customerName}",
-                    'user' => $data->createdBy,
-                    'running_balance' => $newBalance,
-                    'packaging_name' => $itemData->packagingName,
-                    'packaging_quantity' => $itemData->packagingQuantity,
-                    'reference_type' => 'sale',
-                    'reference_id' => $sale->id,
-                ]);
+                // Delegate stock movement to InventoryService
+                $this->inventoryService->recordSale(
+                    productId: $product->id,
+                    quantity: $itemData->baseQuantity,
+                    packagingName: $itemData->packagingName,
+                    packagingQuantity: $itemData->packagingQuantity,
+                    reference: $data->invoiceNumber,
+                    notes: "Sale to " . ($customer?->name ?? 'Walk-in Customer'),
+                    user: $data->createdBy,
+                    referenceId: $sale->id,
+                );
+            }
 
-                $product->decrement('stock_quantity', $itemData->baseQuantity);
-                $this->recalculateStatus($product);
+            // Update customer balance
+            if ($customer) {
+                $customer->current_balance = ($customer->current_balance ?? 0) + $grandTotal;
+                $customer->save();
             }
 
             return $sale->load('items', 'customer');
@@ -129,17 +144,5 @@ class SaleService
         $sale = Sale::withTrashed()->findOrFail($id);
         $sale->restore();
         return $sale;
-    }
-
-    private function recalculateStatus(Product $product): void
-    {
-        if ($product->stock_quantity <= 0) {
-            $product->status = 'out-of-stock';
-        } elseif ($product->stock_quantity <= $product->low_stock_threshold) {
-            $product->status = 'low-stock';
-        } else {
-            $product->status = 'in-stock';
-        }
-        $product->save();
     }
 }

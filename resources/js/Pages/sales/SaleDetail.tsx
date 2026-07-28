@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { usePermission } from '@/features/auth/PermissionGuard'
 import { router, Link, usePage } from '@inertiajs/react'
-import { ArrowLeft, Receipt, ExternalLink, Banknote, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Receipt, ExternalLink, Banknote, RotateCcw, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -95,6 +95,9 @@ export default function SaleDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => router.visit(`/sales/${sale.id}/print`)} className="gap-1.5">
+            <Printer className="size-3.5" /> Print
+          </Button>
           {canProcessReturn && (
             <Button variant="outline" size="sm" onClick={() => router.visit(`/returns/sale?ref=${sale.invoice_number}`)} className="gap-1.5">
               <RotateCcw className="size-3.5" />

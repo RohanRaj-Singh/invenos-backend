@@ -27,24 +27,47 @@ interface BackendProduct {
   barcode: string | null
   category: { id: number; name: string } | null
   description: string | null
-  base_unit_id: number | null
+  base_unit_id: string | null
   stock_quantity: number
   low_stock_threshold: number
   status: string
   product_type: string
   track_inventory: boolean
-  selling_price: number
-  cost_price: number
+  last_purchase_cost: number | null
+  default_purchase_cost: number | null
   selling_units: any[]
   created_at: string
 }
 
 export default function ProductDetailsPage() {
   const { props, url } = usePage()
-  const { product, movements } = props as { product: BackendProduct | null; movements?: any[] }
+  const { product, movements, purchases, sales } = props as {
+    product: BackendProduct | null; movements?: any[]; purchases?: any[]; sales?: any[]
+  }
   const id = url.split('/').pop() || ''
   const [activeSection, setActiveSection] = useState('overview')
   const [showAdjust, setShowAdjust] = useState(false)
+
+  const costPrice = product ? (product.last_purchase_cost ?? product.default_purchase_cost ?? 0) : 0
+  const sellingPrice = product && product.selling_units?.length > 0
+    ? Math.min(...product.selling_units.map((u: any) => u.sale_price || 0))
+    : 0
+
+  // Normalize movements from backend snake_case to frontend camelCase
+  const normalizedMovements = (movements || []).map((m: any) => ({
+    id: String(m.id),
+    productId: m.product_id,
+    type: m.type,
+    quantity: m.quantity,
+    unit: m.unit || '',
+    packagingName: m.packaging_name,
+    packagingQuantity: m.packaging_quantity,
+    date: m.date,
+    reference: m.reference || '',
+    notes: m.notes,
+    user: m.user || '',
+    runningBalance: m.running_balance ?? 0,
+  }))
 
   if (!product) {
     return (
@@ -176,7 +199,7 @@ export default function ProductDetailsPage() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Stock Value</span>
-                <span className="font-semibold">{formatCurrency(product.stock_quantity * (product.cost_price || 0))}</span>
+                <span className="font-semibold">{formatCurrency(product.stock_quantity * (costPrice || 0))}</span>
               </div>
             </CardContent>
           </Card>
@@ -189,17 +212,17 @@ export default function ProductDetailsPage() {
             <CardContent className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Cost Price</span>
-                <span className="font-medium">{formatCurrency(product.cost_price || 0)}</span>
+                <span className="font-medium">{formatCurrency(costPrice || 0)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Selling Price</span>
-                <span className="font-semibold text-emerald-600">{formatCurrency(product.selling_price || 0)}</span>
+                <span className="font-semibold text-emerald-600">{formatCurrency(sellingPrice || 0)}</span>
               </div>
               <div className="flex justify-between text-sm pt-2 border-t border-border">
                 <span className="text-muted-foreground">Margin</span>
                 <span className="font-semibold">
-                  {product.cost_price > 0
-                    ? `${Math.round(((product.selling_price - product.cost_price) / product.cost_price) * 100)}%`
+                  {costPrice > 0
+                    ? `${Math.round(((sellingPrice - costPrice) / costPrice) * 100)}%`
                     : '—'}
                 </span>
               </div>
@@ -215,7 +238,7 @@ export default function ProductDetailsPage() {
             <CardTitle className="text-sm">Stock Movements</CardTitle>
           </CardHeader>
           <CardContent>
-            <InventoryTimeline transactions={movements || []} />
+            <InventoryTimeline transactions={normalizedMovements} />
           </CardContent>
         </Card>
       )}
@@ -227,9 +250,31 @@ export default function ProductDetailsPage() {
             <CardTitle className="text-sm">Purchase History</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              Purchase history will be available after Purchases module integration.
-            </p>
+            {(!purchases || purchases.length === 0) ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No purchase history found.</p>
+            ) : (
+              <div className="space-y-1">
+                {purchases.map((p: any) => (
+                  <div key={p.id} className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="size-8 rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-500/10 flex items-center justify-center">
+                        <ShoppingCart className="size-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-foreground">{p.purchase_bill?.invoice_ref || p.purchase_bill_id}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {p.purchase_bill?.supplier?.name || p.supplier_name || ''} &middot; {p.purchase_bill?.date || p.date}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold">×{p.purchase_quantity} @ {formatCurrency(p.unit_cost)}</div>
+                      <div className="text-xs text-muted-foreground">{formatCurrency(p.total_cost)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -241,9 +286,31 @@ export default function ProductDetailsPage() {
             <CardTitle className="text-sm">Sales History</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              Sales history will be available after Sales module integration.
-            </p>
+            {(!sales || sales.length === 0) ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No sales history found.</p>
+            ) : (
+              <div className="space-y-1">
+                {sales.map((s: any) => (
+                  <div key={s.id} className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/50 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="size-8 rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 flex items-center justify-center">
+                        <ClipboardList className="size-4" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-foreground">{s.sale?.invoice_number || s.sale_id}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {s.sale?.customer?.name || s.customer_name || ''} &middot; {s.sale?.date || s.date}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-semibold">×{s.base_quantity} @ {formatCurrency(s.unit_price)}</div>
+                      <div className="text-xs text-muted-foreground">{formatCurrency(s.total)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

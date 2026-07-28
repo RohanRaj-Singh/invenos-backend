@@ -7,6 +7,7 @@ use App\Domains\Contacts\Services\ContactService;
 use App\Http\Requests\Contacts\CreateContactRequest;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
+use App\Models\FinancialTransaction;
 use Inertia\Response;
 
 class ContactController extends Controller
@@ -56,8 +57,17 @@ class ContactController extends Controller
     {
         $contact = $this->contactService->get($id);
 
+        $transactions = FinancialTransaction::with('sale')
+            ->where('contact_id', $id)
+            ->orderBy('date', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->take(50)
+            ->get()
+            ->toArray();
+
         return Inertia::render('contacts/ContactDetail', [
             'contact' => $contact->toArray(),
+            'transactions' => $transactions,
         ]);
     }
 

@@ -523,10 +523,10 @@ export default function ProductForm() {
       selling_units: newSellingUnits,
       stock_quantity: stockQty,
       low_stock_threshold: categoryThreshold,
-      selling_price: sellingUnits.find((su) => su.isDefault)?.salePrice || (sellingUnits[0]?.salePrice || 0),
+      default_purchase_cost: purchaseCost ? parseFloat(purchaseCost) : null,
       status: stockQty === 0 ? 'out-of-stock' : 'in-stock',
     }
-  }, [name, category, barcode, productType, baseUnitId, openingStock, lowStockThreshold, sellingUnits, categories])
+  }, [name, category, barcode, productType, baseUnitId, openingStock, lowStockThreshold, sellingUnits, purchaseCost, categories])
 
   // ── Save & Add Next ──
 
@@ -545,7 +545,7 @@ export default function ProductForm() {
     setSaving(true)
 
     const currentSku = sku || (category ? generateSku(category, skuSequence) : `PRD-${String(skuSequence).padStart(3, '0')}`)
-    const payload = buildPayload(currentSku)
+    const payload = { ...buildPayload(currentSku), _stay: true }
 
     router.post('/inventory', payload, {
       onSuccess: () => {
@@ -559,7 +559,9 @@ export default function ProductForm() {
         setSaving(false)
         setTimeout(() => nameInputRef.current?.focus(), 0)
       },
-      onError: () => {
+      onError: (errors) => {
+        const messages = Object.values(errors).join(', ')
+        toast.error(messages || 'Failed to create product')
         setSaving(false)
       },
     })
@@ -590,7 +592,9 @@ export default function ProductForm() {
         toast.success(`${name.trim()} saved ✓`)
         setSaving(false)
       },
-      onError: () => {
+      onError: (errors) => {
+        const messages = Object.values(errors).join(', ')
+        toast.error(messages || 'Failed to create product')
         setSaving(false)
       },
     })

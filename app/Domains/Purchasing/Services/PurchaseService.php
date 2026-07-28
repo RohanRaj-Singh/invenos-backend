@@ -8,6 +8,7 @@ use App\Domains\Inventory\Services\InventoryService;
 use App\Models\Product;
 use App\Models\PurchaseBill;
 use App\Models\PurchaseBillItem;
+use App\Models\FinancialTransaction;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -19,7 +20,7 @@ class PurchaseService
 
     public function search(string $query = '', ?int $supplierId = null, ?string $status = null, int $perPage = 25): LengthAwarePaginator
     {
-        $q = PurchaseBill::with('supplier')->where('invoice_ref', 'not like', 'PRET-%');
+        $q = PurchaseBill::with('supplier')->withCount('items')->where('invoice_ref', 'not like', 'PRET-%');
 
         if ($query) {
             $q->where(function ($q) use ($query) {
@@ -41,13 +42,28 @@ class PurchaseService
 
     public function create(CreatePurchaseData $data): PurchaseBill
     {
+        if (empty($data->items)) {
+            throw new \InvalidArgumentException('Purchase must have at least one item.');
+        }
+
         return DB::transaction(function () use ($data) {
-            $supplier = Contact::findOrFail($data->supplierId);
+            $supplier = Contact::lockForUpdate()->findOrFail($data->supplierId);
             if (!in_array('supplier', $supplier->roles ?? [])) {
                 throw new \InvalidArgumentException('Contact must have the supplier role.');
             }
 
-            $subtotal = array_sum(array_map(fn ($item) => $item->totalCost, $data->items));
+            foreach ($data->items as $itemData) {
+                $product = Product::lockForUpdate()->findOrFail($itemData->productId);
+                $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
+                if ($baseQuantity <= 0) {
+                    throw new \InvalidArgumentException("Invalid quantity for product '{$product->name}'.");
+                }
+                if ($itemData->unitCost < 0) {
+                    throw new \InvalidArgumentException("Unit cost cannot be negative for '{$product->name}'.");
+                }
+            }
+
+            $subtotal = array_sum(array_map(fn ($item) => $item->unitCost * $item->purchaseQuantity, $data->items));
             $totalAmount = $subtotal - ($data->discount ?? 0);
             $outstanding = max(0, $totalAmount - $data->amountPaid);
 
@@ -68,7 +84,7 @@ class PurchaseService
             ]);
 
             foreach ($data->items as $itemData) {
-                $product = Product::findOrFail($itemData->productId);
+                $product = Product::lockForUpdate()->findOrFail($itemData->productId);
                 $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
 
                 $unitName = $this->resolveUnitName($product->base_unit_id);
@@ -82,9 +98,15 @@ class PurchaseService
                     'purchase_pack_qty' => $itemData->purchasePackQty,
                     'purchase_quantity' => $itemData->purchaseQuantity,
                     'unit_cost' => $itemData->unitCost,
-                    'total_cost' => $itemData->totalCost,
+                    'total_cost' => $itemData->unitCost * $itemData->purchaseQuantity,
                     'discount_pct' => $itemData->discountPct,
                 ]);
+
+                $product->last_purchase_cost = $itemData->unitCost;
+                if ($product->default_purchase_cost === null) {
+                    $product->default_purchase_cost = $itemData->unitCost;
+                }
+                $product->save();
 
                 $this->inventoryService->recordPurchase(
                     productId: $product->id,
@@ -96,6 +118,23 @@ class PurchaseService
                     user: $data->createdBy,
                     referenceId: $bill->id,
                 );
+            }
+
+            $supplier->current_balance = ($supplier->current_balance ?? 0) + $totalAmount;
+            $supplier->save();
+
+            if ($totalAmount > 0) {
+                FinancialTransaction::create([
+                    'contact_id' => $supplier->id,
+                    'direction' => 'out',
+                    'type' => 'invoice',
+                    'date' => $data->date,
+                    'amount' => $totalAmount,
+                    'method' => $data->paymentMethod,
+                    'reference' => $data->invoiceRef,
+                    'description' => "Purchase: {$data->invoiceRef}",
+                    'created_by' => $data->createdBy,
+                ]);
             }
 
             return $bill->load('items', 'supplier');

@@ -50,6 +50,7 @@ class CreateContactData
             'cnic' => $this->cnic,
             'address' => $this->address,
             'opening_balance' => $this->openingBalance,
+            'current_balance' => $this->openingBalance,
             'balance_type' => $this->balanceType,
             'notes' => $this->notes,
         ];

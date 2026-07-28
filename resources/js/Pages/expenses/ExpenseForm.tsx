@@ -1,12 +1,8 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { router, usePage } from '@inertiajs/react'
 import { ArrowLeft, Wallet, Save, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { getActiveExpenseCategories, addExpenseCategory } from '@/data/expense-categories'
-import { addExpense, updateExpense, getExpenseById, getExpenseByNumber } from '@/data/expenses'
-import { useApplication } from '@/features/transactions/TransactionContext'
 import { toast } from 'sonner'
-import { getCurrentUserName } from '@/data/users'
 import type { PaymentMethod } from '@/types'
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
@@ -18,12 +14,11 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 ]
 
 export default function ExpenseFormPage() {
-  const { url } = usePage();
+  const { url, props } = usePage();
   const id = url.split('/').pop() || '';
-  const { eventBus } = useApplication()
-  const categories = useMemo(() => getActiveExpenseCategories(), [])
+  const categories = (props as any).categories || []
 
-  const isEditing = id && (id.startsWith('EXP-') || String(id).startsWith('exp-'))
+  const isEditing = id && !id.startsWith('new') && !isNaN(Number(id))
 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [categoryInput, setCategoryInput] = useState('')
@@ -47,30 +42,47 @@ export default function ExpenseFormPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Load existing expense for editing
+  // Load existing expense for editing from backend props
   useEffect(() => {
-    if (!id) return
-    const expense = String(id).startsWith('EXP-') ? getExpenseByNumber(id) : getExpenseById(id)
+    if (!id || !isEditing) return
+    const expense = (props as any).expense
     if (expense) {
-      setDate(expense.date)
-      setCategoryInput(expense.categoryName)
-      setCategoryId(expense.categoryId)
-      setAmount(String(expense.amount))
-      setPaidTo(expense.paidTo)
-      setPaymentMethod(expense.paymentMethod)
-      setNotes(expense.notes)
+      setDate(expense.date || new Date().toISOString().split('T')[0])
+      setCategoryInput(expense.category?.name || '')
+      setCategoryId(String(expense.category_id || ''))
+      setAmount(String(expense.amount || ''))
+      setPaidTo(expense.paid_to || '')
+      setPaymentMethod(expense.payment_method || 'cash')
+      setNotes(expense.notes || '')
     }
-  }, [id])
+  }, [id, isEditing])
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {}
     if (!categoryId) errs.categoryId = 'Category is required'
     if (!amount || parseFloat(amount) <= 0) errs.amount = 'Amount must be greater than zero'
     if (!date) errs.date = 'Date is required'
-    if (!paymentMethod) errs.paymentMethod = 'Payment method is required'
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
+
+  // Enter key submits the form
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault()
+      handleSubmit(false)
+    }
+  }
+
+  const resetForm = useCallback((opts: any = {}) => {
+    setDate(new Date().toISOString().split('T')[0])
+    setCategoryInput('')
+    setCategoryId(opts.categoryId ?? '')
+    setAmount('')
+    setPaidTo('')
+    setNotes('')
+    setErrors({})
+  }, [])
 
   const handleSubmit = (andNext = false) => {
     if (!validate()) {
@@ -78,50 +90,44 @@ export default function ExpenseFormPage() {
       return
     }
 
-    const data = {
+    const payload = {
       date,
-      categoryId,
+      category_id: categoryId,
       amount: Math.round(parseFloat(amount) * 100) / 100,
-      paidTo,
-      paymentMethod,
+      paid_to: paidTo,
+      payment_method: paymentMethod,
       notes,
-      createdBy: getCurrentUserName(),
     }
 
     if (isEditing) {
-      const existing = String(id!).startsWith('EXP-') ? getExpenseByNumber(id!) : getExpenseById(id!)
-      if (existing) {
-        updateExpense(existing.id, {
-          ...data,
-          categoryId,
-          amount: data.amount,
-        })
-        eventBus.emit('ExpenseUpdated', { type: 'ExpenseUpdated', expenseId: existing.id, timestamp: new Date().toISOString() })
-        toast.success(`Expense ${existing.expenseNumber} updated`)
-        router.visit(`/expenses/${existing.expenseNumber}`)
-      }
+      router.put(`/expenses/${id}`, payload, {
+        onSuccess: () => {
+          toast.success('Expense updated')
+          if (!andNext) router.visit('/expenses')
+          else resetForm({ amount: true, date: true, notes: true })
+        },
+        onError: (errs: any) => {
+          const first = Object.values(errs)[0]
+          toast.error(String(first || 'Failed to update expense'))
+        },
+      })
     } else {
-      const expense = addExpense(data)
-      eventBus.emit('ExpenseCreated', { type: 'ExpenseCreated', expenseId: expense.id, amount: expense.amount, timestamp: new Date().toISOString() })
-      toast.success(`Expense ${expense.expenseNumber} recorded`)
-
-      if (andNext) {
-        setDate(new Date().toISOString().split('T')[0])
-        setCategoryInput('')
-        setCategoryId('')
-        setIsNewCategory(false)
-        setAmount('')
-        setPaidTo('')
-        setNotes('')
-        setErrors({})
-      } else {
-        router.visit(`/expenses/${expense.expenseNumber}`)
-      }
+      router.post('/expenses', payload, {
+        onSuccess: () => {
+          toast.success('Expense added')
+          if (!andNext) router.visit('/expenses')
+          else resetForm({ amount: true, date: true, notes: true })
+        },
+        onError: (errs: any) => {
+          const first = Object.values(errs)[0]
+          toast.error(String(first || 'Failed to add expense'))
+        },
+      })
     }
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-5" onKeyDown={handleKeyDown}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <button onClick={() => router.visit('/expenses')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -187,14 +193,17 @@ export default function ExpenseFormPage() {
                     onClick={() => {
                       const name = categoryInput.trim()
                       if (!name) return
-                      const id = `exp-cat-${String(Date.now()).slice(-6)}`
-                      const newCat = addExpenseCategory({
-                        id, name, description: '', color: '#78716c', icon: 'Wallet', active: true,
+                      router.post('/expenses/categories', { name }, {
+                        onSuccess: (page: any) => {
+                          const fresh = (page.props as any).categories || []
+                          const created = fresh.find((c: any) => c.name === name)
+                          setCategoryId(created ? String(created.id) : '')
+                          setIsNewCategory(true)
+                          setShowSuggestions(false)
+                          toast.success(`Category "${name}" created`)
+                        },
+                        onError: () => toast.error('Failed to create category'),
                       })
-                      setCategoryId(newCat.id)
-                      setIsNewCategory(true)
-                      setShowSuggestions(false)
-                      toast.success(`Category "${name}" created`)
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:bg-primary/90 transition-colors"
                   >
@@ -230,14 +239,17 @@ export default function ExpenseFormPage() {
                         onClick={() => {
                           const name = categoryInput.trim()
                           if (!name) return
-                          const id = `exp-cat-${String(Date.now()).slice(-6)}`
-                          const newCat = addExpenseCategory({
-                            id, name, description: '', color: '#78716c', icon: 'Wallet', active: true,
+                          router.post('/expenses/categories', { name }, {
+                            onSuccess: (page: any) => {
+                              const fresh = (page.props as any).categories || []
+                              const created = fresh.find((c: any) => c.name === name)
+                              setCategoryId(created ? String(created.id) : '')
+                              setIsNewCategory(true)
+                              setShowSuggestions(false)
+                              toast.success(`Category "${name}" created`)
+                            },
+                            onError: () => toast.error('Failed to create category'),
                           })
-                          setCategoryId(newCat.id)
-                          setIsNewCategory(true)
-                          setShowSuggestions(false)
-                          toast.success(`Category "${name}" created`)
                         }}
                         className="text-primary font-medium hover:underline"
                       >

@@ -26,7 +26,8 @@ interface BackendProduct {
   product_type: string
   track_inventory: boolean
   selling_price: number
-  cost_price: number
+  last_purchase_cost?: number
+  default_purchase_cost?: number
   category: Category | null
   selling_units: any[]
   created_at: string
@@ -83,7 +84,7 @@ export default function ProductListPage() {
 
   const totalStockValue = useMemo(() => {
     return products.reduce((sum, p) => {
-      const cost = p.cost_price || 0
+      const cost = (p as any).last_purchase_cost ?? (p as any).default_purchase_cost ?? 0
       return sum + p.stock_quantity * cost
     }, 0)
   }, [products])

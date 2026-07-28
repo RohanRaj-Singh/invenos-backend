@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { router, Link, usePage } from '@inertiajs/react'
-import { ArrowLeft, ShoppingBag, Banknote, RotateCcw } from 'lucide-react'
+import { ArrowLeft, ShoppingBag, Banknote, RotateCcw, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -107,6 +107,9 @@ export default function PurchaseDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => router.visit(`/purchases/${purchase.id}/print`)} className="gap-1.5">
+            <Printer className="size-3.5" /> Print
+          </Button>
           <span className={cn('text-xs font-medium px-2 py-1 rounded-lg', sCfg.cls)}>{sCfg.label}</span>
           <span className={cn('text-xs font-medium', pCfg.cls)}>{pCfg.label}</span>
         </div>

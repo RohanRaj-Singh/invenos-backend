@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\BrandingController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InventoryController;
@@ -10,6 +9,8 @@ use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SettingsController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
+Route::middleware('auth')->group(function () {
 
 Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
 
@@ -32,6 +33,7 @@ Route::prefix('purchases')->group(function () {
     Route::get('/', [PurchaseController::class, 'index'])->name('purchases.index');
     Route::get('/new', [PurchaseController::class, 'create'])->name('purchases.create');
     Route::post('/', [PurchaseController::class, 'store'])->name('purchases.store');
+    Route::get('/{id}/print', [PurchaseController::class, 'printBill'])->name('purchases.print');
     Route::get('/{id}', [PurchaseController::class, 'show'])->name('purchases.show');
     Route::delete('/{id}', [PurchaseController::class, 'destroy'])->name('purchases.destroy');
 });
@@ -40,6 +42,7 @@ Route::prefix('sales')->group(function () {
     Route::get('/', [SaleController::class, 'index'])->name('sales.index');
     Route::post('/', [SaleController::class, 'store'])->name('sales.store');
     Route::get('/pos', [SaleController::class, 'create'])->name('sales.pos');
+    Route::get('/{id}/print', [SaleController::class, 'printInvoice'])->name('sales.print');
     Route::get('/{id}', [SaleController::class, 'show'])->name('sales.show');
     Route::delete('/{id}', [SaleController::class, 'destroy'])->name('sales.destroy');
 });
@@ -50,11 +53,15 @@ Route::prefix('returns')->group(function () {
 });
 
 Route::prefix('expenses')->group(function () {
-    Route::get('/', fn () => Inertia::render('expenses/ExpenseList'))->name('expenses.index');
-    Route::get('/new', fn () => Inertia::render('expenses/ExpenseForm'))->name('expenses.create');
+    Route::get('/', [\App\Http\Controllers\ExpenseController::class, 'index'])->name('expenses.index');
+    Route::get('/new', [\App\Http\Controllers\ExpenseController::class, 'create'])->name('expenses.create');
+    Route::post('/', [\App\Http\Controllers\ExpenseController::class, 'store'])->name('expenses.store');
     Route::get('/categories', fn () => Inertia::render('expenses/ExpenseCategories'))->name('expenses.categories');
-    Route::get('/{id}', fn (string $id) => Inertia::render('expenses/ExpenseDetail', ['id' => $id]))->name('expenses.show');
-    Route::get('/{id}/edit', fn (string $id) => Inertia::render('expenses/ExpenseForm', ['id' => $id]))->name('expenses.edit');
+    Route::post('/categories', [\App\Http\Controllers\ExpenseController::class, 'storeCategory'])->name('expenses.categories.store');
+    Route::get('/{id}', [\App\Http\Controllers\ExpenseController::class, 'show'])->name('expenses.show');
+    Route::get('/{id}/edit', [\App\Http\Controllers\ExpenseController::class, 'edit'])->name('expenses.edit');
+    Route::put('/{id}', [\App\Http\Controllers\ExpenseController::class, 'update'])->name('expenses.update');
+    Route::delete('/{id}', [\App\Http\Controllers\ExpenseController::class, 'destroy'])->name('expenses.destroy');
 });
 
 Route::prefix('contacts')->group(function () {
@@ -83,9 +90,8 @@ Route::prefix('reports')->group(function () {
 Route::prefix('settings')->group(function () {
     Route::get('/', [SettingsController::class, 'index'])->name('settings.index');
     Route::put('/', [SettingsController::class, 'update'])->name('settings.update');
-    Route::get('/business', [BrandingController::class, 'edit'])->name('settings.business');
-    Route::put('/branding', [BrandingController::class, 'update'])->name('settings.branding.update');
-    Route::post('/branding/logo', [BrandingController::class, 'uploadLogo'])->name('settings.branding.logo');
+    Route::get('/business', [SettingsController::class, 'edit'])->name('settings.business')->defaults('group', 'business');
+    Route::put('/business', [SettingsController::class, 'update'])->name('settings.business.update');
     Route::get('/pos', fn () => Inertia::render('settings/POS'))->name('settings.pos');
     Route::get('/inventory', fn () => Inertia::render('settings/Inventory'))->name('settings.inventory');
     Route::get('/sales', fn () => Inertia::render('settings/Sales'))->name('settings.sales');
@@ -102,5 +108,10 @@ Route::prefix('settings')->group(function () {
 Route::get('/clinic', fn () => Inertia::render('clinic/ClinicPage'))->name('clinic.index');
 Route::get('/clinic/patient/{id}', fn (string $id) => Inertia::render('clinic/PatientProfile', ['id' => $id]))->name('clinic.patient');
 Route::get('/clinic/patient/{id}/visit', fn (string $id) => Inertia::render('clinic/NewVisit', ['id' => $id]))->name('clinic.visit');
+
+}); // ← end auth middleware
+
+// Guest-only routes (login, register, password reset)
+require __DIR__.'/auth.php';
 
 Route::get('/api/dashboard/metrics', [DashboardController::class, 'metrics'])->name('api.dashboard.metrics');

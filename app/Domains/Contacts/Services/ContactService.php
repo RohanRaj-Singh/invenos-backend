@@ -4,6 +4,7 @@ namespace App\Domains\Contacts\Services;
 
 use App\Domains\Contacts\DTOs\CreateContactData;
 use App\Models\Contact;
+use App\Models\FinancialTransaction;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class ContactService
@@ -31,6 +32,22 @@ class ContactService
     public function create(CreateContactData $data): Contact
     {
         $contact = Contact::create($data->toArray());
+
+        // Record opening balance as a financial transaction
+        if ($data->openingBalance > 0) {
+            FinancialTransaction::create([
+                'contact_id' => $contact->id,
+                'direction' => $data->balanceType === 'payable' ? 'out' : 'in',
+                'type' => 'adjustment',
+                'date' => now()->format('Y-m-d'),
+                'amount' => $data->openingBalance,
+                'method' => 'transfer',
+                'reference' => 'OPENING',
+                'description' => 'Opening balance (on creation)',
+                'created_by' => 'System',
+            ]);
+        }
+
         return $contact;
     }
 

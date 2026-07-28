@@ -45,7 +45,10 @@ function SupplierCombobox({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const contacts = ((usePage().props as any).suppliers || []) as Contact[]
+  const contacts = ((usePage().props as any).suppliers || []).map((s: any) => ({
+    ...s,
+    currentBalance: s.current_balance ?? s.opening_balance ?? 0,
+  })) as Contact[]
 
   const suppliers = useMemo(() => contacts, [contacts])
 
@@ -171,13 +174,16 @@ export default function PurchaseBillPage() {
       salePrice: u.sale_price || 0, isDefault: u.is_default || false,
       unitId: String(u.unit_id || ''),
     })),
-    purchaseConfig: p.purchase_units?.[0] ? {
-      name: p.purchase_units[0].name || 'Pack',
-      quantity: p.purchase_units[0].quantity || 1,
-      cost: p.purchase_units[0].cost || 0,
-    } : undefined,
+    purchaseConfig: {
+      name: 'Pack',
+      quantity: 1,
+      cost: p.default_purchase_cost || p.last_purchase_cost || 0,
+    },
   }))
-  const mockContacts = (inertiaProps as any).suppliers || []
+  const mockContacts = ((inertiaProps as any).suppliers || []).map((s: any) => ({
+    ...s,
+    currentBalance: s.current_balance ?? s.opening_balance ?? 0,
+  }))
   const purchaseBills = [] as any[]
 
   // ── Filtered products ──
@@ -488,16 +494,16 @@ export default function PurchaseBillPage() {
       {/* ── Table ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full">
+          <table className="w-full" style={{tableLayout: 'fixed'}}>
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <Th className="w-10">#</Th>
-                <Th>Product</Th>
-                <Th className="w-32">Pack</Th>
-                <Th className="w-20 text-center">Qty</Th>
-                <Th className="w-28 text-right">Cost</Th>
-                <Th className="w-28 text-right">Total</Th>
-                <Th className="w-10" />
+                <Th className="w-8">#</Th>
+                <Th style={{width: '32%'}}>Product</Th>
+                <Th className="w-24">Pack</Th>
+                <Th className="w-16 text-center">Qty</Th>
+                <Th className="w-24 text-right">Cost</Th>
+                <Th className="w-24 text-right">Total</Th>
+                <Th className="w-8" />
               </tr>
             </thead>
             <tbody>
@@ -524,7 +530,7 @@ export default function PurchaseBillPage() {
                     <tr key={item.id} className="border-b border-border hover:bg-muted/20 transition-colors group">
                       <Td className="w-10 text-center text-xs text-muted-foreground">{idx + 1}</Td>
                       <Td className="min-w-0">
-                        <div className="text-sm font-medium text-foreground truncate max-w-[200px]">{item.productName}</div>
+                        <div className="text-sm font-medium text-foreground truncate">{item.productName}</div>
                         <div className="text-[10px] text-muted-foreground">{item.baseUnitName}</div>
                         {/* ── Yield breakdown in product cell ── */}
                         {breakdown.length > 0 && (
@@ -576,11 +582,19 @@ export default function PurchaseBillPage() {
                           </button>
                           <input
                             type="number"
-                            value={item.purchaseQuantity}
-                            onChange={(e) => {
+                            defaultValue={item.purchaseQuantity}
+                            onBlur={(e) => {
                               const v = parseFloat(e.target.value)
-                              if (!isNaN(v) && v > 0) {
+                              const target = e.currentTarget
+                              if (!isNaN(v) && v > 0 && v !== item.purchaseQuantity) {
                                 updateQuantity(item.id, v - item.purchaseQuantity)
+                              } else if (isNaN(v) || v <= 0) {
+                                target.value = String(item.purchaseQuantity)
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                (e.target as HTMLInputElement).blur()
                               }
                             }}
                             className="w-12 h-7 px-1 rounded border border-input bg-background text-sm font-semibold text-center outline-none focus:border-ring tabular-nums"

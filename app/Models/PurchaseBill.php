@@ -8,7 +8,7 @@ class PurchaseBill extends Model
 {
     protected $fillable = [
         'invoice_ref', 'supplier_id', 'supplier_name', 'date',
-        'subtotal', 'total_amount', 'amount_paid', 'outstanding_balance',
+        'subtotal', 'discount', 'total_amount', 'amount_paid', 'outstanding_balance',
         'payment_status', 'status', 'notes', 'created_by',
     ];
     protected $casts = [

@@ -100,15 +100,50 @@ class SettingService
                 'require_supplier' => true,
             ],
             'receipt' => [
+                // Header toggles
+                'show_business_logo' => true,
+                'show_business_name' => true,
+                'show_business_address' => true,
+                'show_phone' => true,
+                'show_email' => false,
+                'show_website' => false,
+                'show_tax_number' => false,
+                // Titles
+                'purchase_title' => 'Purchase Bill',
+                'sale_title' => 'Sale Invoice',
+                // Info visibility
+                'show_invoice_number' => true,
+                'show_date' => true,
+                'show_payment_status' => true,
+                'show_payment_method' => false,
+                // Party fields
+                'show_party_name' => true,
+                'show_party_phone' => true,
+                'show_party_address' => false,
+                // Items table
+                'show_item_sku' => false,
+                'show_item_barcode' => false,
+                'show_item_unit' => true,
+                'show_item_discount' => true,
+                // Totals
+                'show_subtotal' => true,
+                'show_discount' => true,
+                'show_tax' => false,
+                'show_grand_total' => true,
+                'show_paid' => true,
+                'show_remaining' => true,
+                // Footer
                 'header_text' => 'Thank you for your business!',
                 'footer_text' => 'Goods once sold will not be taken back.',
-                'show_business_logo' => true,
-                'print_address' => true,
-                'print_phone' => true,
-                'print_tax_number' => false,
-                'print_barcode' => false,
-                'print_qr_code' => false,
-                'paper_width' => 80,
+                'terms_conditions' => '',
+                // Signature
+                'show_customer_signature' => false,
+                'show_authorized_signature' => false,
+                'show_received_by' => false,
+                // Print
+                'paper_size' => 'A4',
+                'show_print_date' => false,
+                'show_page_numbers' => false,
             ],
         ];
     }

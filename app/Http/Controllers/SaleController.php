@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Domains\Sales\DTOs\CreateSaleData;
 use App\Domains\Sales\Services\SaleService;
+use App\Domains\Settings\Services\SettingService;
 use App\Http\Requests\Sales\CreateSaleRequest;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -65,6 +66,17 @@ class SaleController extends Controller
         $sale = $this->saleService->get($id);
         return Inertia::render('sales/SaleDetail', [
             'sale' => $sale->toArray(),
+        ]);
+    }
+
+    public function printInvoice(int $id): Response
+    {
+        $sale = $this->saleService->get($id);
+        $settings = app(SettingService::class)->get();
+
+        return Inertia::render('sales/SalePrint', [
+            'sale' => $sale->toArray(),
+            'settings' => $settings,
         ]);
     }
 

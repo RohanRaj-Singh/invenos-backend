@@ -143,7 +143,7 @@ export default function PurchasesListPage() {
                       </div>
                       <div>
                         <div className="text-[11px] text-muted-foreground">Items</div>
-                        <div className="text-xs font-medium">{bill.items?.length || 0}</div>
+                        <div className="text-xs font-medium">{bill.items_count ?? bill.items?.length ?? 0}</div>
                       </div>
                       <div>
                         <div className="text-[11px] text-muted-foreground">Total</div>

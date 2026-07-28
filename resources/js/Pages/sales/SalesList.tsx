@@ -127,7 +127,7 @@ export default function SalesListPage() {
                       </div>
                       <div>
                         <div className="text-[11px] text-muted-foreground">Items</div>
-                        <div className="text-xs font-medium">{s.items?.length || 0}</div>
+                        <div className="text-xs font-medium">{s.items_count ?? s.items?.length ?? 0}</div>
                       </div>
                       <div>
                         <div className="text-[11px] text-muted-foreground">Total</div>

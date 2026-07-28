@@ -41,7 +41,7 @@ import {
 } from '@/domain/products/unit-stepping'
 import { getDefaultSellingUnit } from '@/lib/product-adapter'
 import { getUnit } from '@/lib/units'
-import { usePage } from '@inertiajs/react'
+import { router, usePage } from '@inertiajs/react'
 
 // ─── Cart persistence helpers (inline pos-utils replacement) ───
 const CART_KEY = 'invenos-pos-cart'
@@ -774,17 +774,17 @@ export default function SaleBillPage() {
       {/* ── Table ── */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full">
+          <table className="w-full" style={{tableLayout: 'fixed'}}>
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                <Th className="w-10">#</Th>
-                <Th>Product</Th>
-                <Th className="w-32">Unit</Th>
-                <Th className="w-24 text-center">Qty</Th>
-                <Th className="w-24 text-right">Price</Th>
-                <Th className="w-20 text-right">Disc%</Th>
-                <Th className="w-28 text-right">Total</Th>
-                <Th className="w-10" />
+                <Th className="w-8">#</Th>
+                <Th style={{width: '30%'}}>Product</Th>
+                <Th className="w-20">Unit</Th>
+                <Th className="w-16 text-center">Qty</Th>
+                <Th className="w-20 text-right">Price</Th>
+                <Th className="w-16 text-right">Disc%</Th>
+                <Th className="w-22 text-right">Total</Th>
+                <Th className="w-8" />
               </tr>
             </thead>
             <tbody>
@@ -827,7 +827,7 @@ export default function SaleBillPage() {
                         {idx + 1}
                       </Td>
                       <Td className="min-w-0">
-                        <div className="text-sm font-medium text-foreground truncate max-w-[200px]">
+                        <div className="text-sm font-medium text-foreground truncate">
                           {item.name}
                         </div>
                         <div className="text-[10px] text-muted-foreground">

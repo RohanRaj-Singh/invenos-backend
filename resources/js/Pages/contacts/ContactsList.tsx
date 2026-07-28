@@ -1,13 +1,37 @@
 import { useState, useMemo } from 'react'
-import { router } from '@inertiajs/react'
+import { router, usePage } from '@inertiajs/react'
 import { Search, Plus, Users, ArrowRight, Phone, Building2, User } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { mockContacts } from '@/data/contacts'
-import { formatCurrency } from '@/data/dashboard'
+import { formatCurrency } from '@/lib/format'
 import { RoleBadgeList } from './components/RoleBadge'
 import { cn } from '@/lib/utils'
 import type { ContactRole } from '@/types'
+
+interface BackendContact {
+  id: number
+  type: string
+  roles: string[]
+  name: string
+  company_name?: string
+  contact_person?: string
+  phone: string
+  email?: string
+  cnic?: string
+  address?: string
+  opening_balance: number
+  balance_type: string
+  current_balance: number
+  notes?: string
+  created_at: string
+  updated_at: string
+}
+
+interface ContactsPageProps {
+  contacts: BackendContact[]
+  meta: { current_page: number; last_page: number; per_page: number; total: number }
+  filters: { search: string; role: string }
+}
 
 const roleFilters: { label: string; value: ContactRole | 'all' }[] = [
   { label: 'All Contacts', value: 'all' },
@@ -17,22 +41,22 @@ const roleFilters: { label: string; value: ContactRole | 'all' }[] = [
 ]
 
 export default function ContactsListPage() {
-  const [search, setSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState<ContactRole | 'all'>('all')
+  const { props } = usePage()
+  const { contacts, meta, filters } = props as unknown as ContactsPageProps
+  const [search, setSearch] = useState(filters?.search || '')
+  const [roleFilter, setRoleFilter] = useState<ContactRole | 'all'>((filters?.role as ContactRole) || 'all')
 
-  const filtered = useMemo(() => {
-    return mockContacts.filter((c) => {
-      if (search) {
-        const q = search.toLowerCase()
-        const nameMatch = c.name.toLowerCase().includes(q)
-        const phoneMatch = c.phone.includes(q)
-        const companyMatch = c.companyName?.toLowerCase().includes(q)
-        if (!nameMatch && !phoneMatch && !companyMatch) return false
-      }
-      if (roleFilter !== 'all' && !c.roles.includes(roleFilter)) return false
-      return true
-    })
-  }, [search, roleFilter])
+  const handleSearch = (q: string) => {
+    setSearch(q)
+    router.get('/contacts', { search: q, role: roleFilter }, { preserveState: true, replace: true })
+  }
+
+  const handleRoleFilter = (role: ContactRole | 'all') => {
+    setRoleFilter(role)
+    router.get('/contacts', { search, role: role === 'all' ? undefined : role }, { preserveState: true, replace: true })
+  }
+
+  const displayContacts = contacts || []
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5">
@@ -43,7 +67,7 @@ export default function ContactsListPage() {
             <span className="text-xs font-semibold uppercase tracking-wider text-primary">Contacts</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">All Contacts</h1>
-          <p className="text-sm text-muted-foreground mt-1">{mockContacts.length} contacts across your business</p>
+          <p className="text-sm text-muted-foreground mt-1">{meta?.total || displayContacts.length} contact{(meta?.total || displayContacts.length) !== 1 ? 's' : ''} across your business</p>
         </div>
         <Button onClick={() => router.visit('/contacts/add')} size="sm" className="gap-1.5 shadow-sm h-9">
           <Plus className="size-4" />
@@ -55,12 +79,12 @@ export default function ContactsListPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input type="text" placeholder="Search by name, phone, or company..." value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             className="w-full h-10 pl-9 pr-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
           {roleFilters.map((f) => (
-            <button key={f.value} onClick={() => setRoleFilter(f.value)}
+            <button key={f.value} onClick={() => handleRoleFilter(f.value)}
               className={cn('text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors whitespace-nowrap',
                 roleFilter === f.value ? 'bg-foreground text-background border-foreground' : 'bg-background text-muted-foreground border-border hover:text-foreground'
               )}>{f.label}</button>
@@ -78,16 +102,15 @@ export default function ContactsListPage() {
               <Th>Roles</Th>
               <Th>Phone</Th>
               <Th>Balance</Th>
-              <Th>Last Activity</Th>
-              <Th className="w-10" />
+              <Th />
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-16 text-sm text-muted-foreground"><Users className="size-8 mx-auto mb-2 text-muted-foreground/30" /><span>No contacts found.</span></td></tr>
+            {displayContacts.length === 0 ? (
+              <tr><td colSpan={6} className="text-center py-16 text-sm text-muted-foreground"><Users className="size-8 mx-auto mb-2 text-muted-foreground/30" /><span>No contacts found.</span></td></tr>
             ) : (
-              filtered.map((contact) => {
-                const balance = contact.currentBalance || 0
+              displayContacts.map((contact: BackendContact) => {
+                const balance = contact.current_balance || 0
                 const isPerson = contact.type === 'person'
                 return (
                   <tr key={contact.id} onClick={() => router.visit(`/contacts/${contact.id}`)}
@@ -99,19 +122,18 @@ export default function ContactsListPage() {
                         </div>
                         <div>
                           <div className="text-sm font-medium text-foreground">{contact.name}</div>
-                          {contact.companyName && <div className="text-[11px] text-muted-foreground">{contact.companyName}</div>}
+                          {contact.company_name && <div className="text-[11px] text-muted-foreground">{contact.company_name}</div>}
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-3.5 text-sm capitalize text-muted-foreground">{contact.type}</td>
-                    <td className="px-4 py-3.5"><RoleBadgeList roles={contact.roles} size="xs" /></td>
+                    <td className="px-4 py-3.5"><RoleBadgeList roles={contact.roles as ContactRole[]} size="xs" /></td>
                     <td className="px-4 py-3.5"><div className="flex items-center gap-1.5 text-sm text-muted-foreground"><Phone className="size-3" />{contact.phone}</div></td>
                     <td className="px-4 py-3.5">
-                      <span className={cn('text-sm font-semibold', balance > 0 ? (contact.balanceType === 'receivable' ? 'text-amber-600' : 'text-blue-600') : 'text-muted-foreground')}>
-                        {balance > 0 ? (contact.balanceType === 'receivable' ? 'Owes ' : 'Owe ') : ''}{formatCurrency(Math.abs(balance))}
+                      <span className={cn('text-sm font-semibold', balance > 0 ? (contact.balance_type === 'receivable' ? 'text-amber-600' : 'text-blue-600') : 'text-muted-foreground')}>
+                        {balance > 0 ? (contact.balance_type === 'receivable' ? 'Owes ' : 'Owe ') : ''}{formatCurrency(Math.abs(balance))}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-sm text-muted-foreground">{contact.lastActivity || '—'}</td>
                     <td className="px-4 py-3.5"><ArrowRight className="size-4 text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" /></td>
                   </tr>
                 )
@@ -123,11 +145,11 @@ export default function ContactsListPage() {
 
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
-        {filtered.length === 0 ? (
+        {displayContacts.length === 0 ? (
           <div className="text-center py-16 text-sm text-muted-foreground"><Users className="size-10 mx-auto mb-2 text-muted-foreground/30" /><span>No contacts found.</span></div>
         ) : (
-          filtered.map((contact) => {
-            const balance = contact.currentBalance || 0
+          displayContacts.map((contact: BackendContact) => {
+            const balance = contact.current_balance || 0
             const isPerson = contact.type === 'person'
             return (
               <button key={contact.id} onClick={() => router.visit(`/contacts/${contact.id}`)} className="w-full text-left group">
@@ -140,16 +162,16 @@ export default function ContactsListPage() {
                         </div>
                         <div>
                           <h3 className="text-sm font-semibold text-foreground">{contact.name}</h3>
-                          {contact.companyName && <p className="text-xs text-muted-foreground">{contact.companyName}</p>}
+                          {contact.company_name && <p className="text-xs text-muted-foreground">{contact.company_name}</p>}
                         </div>
                       </div>
                       <ArrowRight className="size-4 text-muted-foreground/30 group-hover:text-muted-foreground transition-colors" />
                     </div>
-                    <div className="flex items-center gap-2 mb-2"><RoleBadgeList roles={contact.roles} size="xs" /></div>
+                    <div className="flex items-center gap-2 mb-2"><RoleBadgeList roles={contact.roles as ContactRole[]} size="xs" /></div>
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-1.5 text-muted-foreground"><Phone className="size-3" />{contact.phone}</div>
-                      <span className={cn('text-xs font-semibold', balance > 0 ? (contact.balanceType === 'receivable' ? 'text-amber-600' : 'text-blue-600') : 'text-muted-foreground')}>
-                        {balance > 0 ? (contact.balanceType === 'receivable' ? 'Owes ' : 'Owe ') : ''}{formatCurrency(Math.abs(balance))}
+                      <span className={cn('text-xs font-semibold', balance > 0 ? (contact.balance_type === 'receivable' ? 'text-amber-600' : 'text-blue-600') : 'text-muted-foreground')}>
+                        {balance > 0 ? (contact.balance_type === 'receivable' ? 'Owes ' : 'Owe ') : ''}{formatCurrency(Math.abs(balance))}
                       </span>
                     </div>
                   </CardContent>

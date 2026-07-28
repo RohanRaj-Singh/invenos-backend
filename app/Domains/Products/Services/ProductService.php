@@ -6,6 +6,7 @@ use App\Domains\Products\DTOs\CreateProductData;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\SellingUnit;
+use App\Models\InventoryTransaction;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 class ProductService
@@ -34,6 +35,29 @@ class ProductService
     public function create(CreateProductData $data): Product
     {
         $product = Product::create($data->toArray());
+
+        // Record opening stock as an inventory transaction if > 0
+        if ($product->stock_quantity > 0) {
+            InventoryTransaction::create([
+                'product_id' => $product->id,
+                'type' => 'adjustment',
+                'quantity' => $product->stock_quantity,
+                'unit' => $product->base_unit_id,
+                'date' => now()->format('Y-m-d'),
+                'reference' => 'INITIAL',
+                'notes' => 'Opening stock (initial)',
+                'user' => $data->createdBy,
+                'running_balance' => $product->stock_quantity,
+                'reference_type' => 'product',
+                'reference_id' => $product->id,
+            ]);
+        }
+
+        // Update status based on opening stock
+        if ($product->stock_quantity > 0) {
+            $product->status = 'in-stock';
+            $product->save();
+        }
 
         // Create selling units
         foreach ($data->sellingUnits as $unit) {

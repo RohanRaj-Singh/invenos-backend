@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { router } from '@inertiajs/react'
-import { Save, X, User, Building2, Users, DollarSign } from 'lucide-react'
+import { Save, X, User, Building2, Users, DollarSign, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { toast } from 'sonner'
@@ -30,13 +30,50 @@ export default function AddContactPage() {
     setRoles((prev) => prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role])
   }
 
+  const [saving, setSaving] = useState(false)
+
   const handleSave = () => {
     if (!name.trim() || !phone.trim()) {
       toast.error('Name and phone are required')
       return
     }
-    toast.success(`Contact "${name}" created!`)
-    router.visit('/contacts')
+    if (roles.length === 0) {
+      toast.error('At least one role is required')
+      return
+    }
+
+    setSaving(true)
+
+    const payload: Record<string, any> = {
+      type,
+      roles,
+      name: name.trim(),
+      phone: phone.trim(),
+      email: email.trim() || undefined,
+      cnic: cnic.trim() || undefined,
+      address: address.trim() || undefined,
+      opening_balance: openingBalance ? parseFloat(openingBalance) : 0,
+      balance_type: balanceType,
+      notes: notes.trim() || undefined,
+    }
+
+    if (type === 'organization') {
+      payload.company_name = companyName.trim() || undefined
+      payload.contact_person = name.trim() || undefined
+      if (companyName.trim()) payload.name = companyName.trim()
+    }
+
+    router.post('/contacts', payload, {
+      onSuccess: () => {
+        toast.success(`Contact created!`)
+        setSaving(false)
+      },
+      onError: (errors) => {
+        const messages = Object.values(errors).join(', ')
+        toast.error(messages || 'Failed to create contact')
+        setSaving(false)
+      },
+    })
   }
 
   return (
@@ -50,8 +87,9 @@ export default function AddContactPage() {
           <Button variant="outline" size="sm" onClick={() => router.visit('/contacts')} className="gap-1.5">
             <X className="size-3.5" /> Cancel
           </Button>
-          <Button size="sm" onClick={handleSave} className="gap-1.5 shadow-sm">
-            <Save className="size-3.5" /> Save Contact
+          <Button size="sm" onClick={handleSave} disabled={saving} className="gap-1.5 shadow-sm">
+            {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+            {saving ? 'Saving...' : 'Save Contact'}
           </Button>
         </div>
       </div>

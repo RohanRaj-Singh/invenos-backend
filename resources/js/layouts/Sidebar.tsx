@@ -37,7 +37,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ mobile, onClose }: SidebarProps) {
-  const { url } = usePage()
+  const { url, props: pageProps } = usePage()
+  const user = (pageProps.auth as any)?.user ?? null
   const [modulesOpen, setModulesOpen] = useState(false)
   const [salesOpen, setSalesOpen] = useState(url.startsWith('/sales'))
   const [purchasesOpen, setPurchasesOpen] = useState(url.startsWith('/purchases'))
@@ -284,15 +285,15 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
         <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg group">
           <div className="flex items-center gap-3 min-w-0">
             <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
-              {'?'}
+              {(user?.name?.[0] || '?').toUpperCase()}
             </div>
             <div className="flex flex-col min-w-0">
-              <span className="text-sm font-medium truncate">Not logged in</span>
-              <span className="text-xs text-muted-foreground capitalize" />
+              <span className="text-sm font-medium truncate">{user?.name || 'Not logged in'}</span>
+              <span className="text-xs text-muted-foreground capitalize">{user?.role || ''}</span>
             </div>
           </div>
           <button
-            onClick={() => router.visit('/login')}
+            onClick={() => router.post('/logout')}
             className="flex items-center justify-center size-7 rounded-md opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all shrink-0"
             title="Logout"
           >

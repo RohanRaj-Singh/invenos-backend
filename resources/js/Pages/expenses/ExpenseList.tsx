@@ -1,14 +1,10 @@
 import { useState, useMemo } from 'react'
-import { router, Link } from '@inertiajs/react'
+import { router, Link, usePage } from '@inertiajs/react'
 import { Wallet, Search, Plus, ArrowRight, Trash2, Pencil } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { getExpenses, deleteExpense } from '@/data/expenses'
-import { getExpenseCategories } from '@/data/expense-categories'
-import { formatCurrency } from '@/data/dashboard'
+import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { useApplication } from '@/features/transactions/TransactionContext'
-import { refreshCategoryStats } from '@/data/expense-categories'
 
 const METHOD_COLORS: Record<string, string> = {
   cash: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400',
@@ -19,36 +15,36 @@ const METHOD_COLORS: Record<string, string> = {
 }
 
 export default function ExpenseListPage() {
-  const { eventBus } = useApplication()
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [methodFilter, setMethodFilter] = useState('all')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
 
-  const expenses = useMemo(() => getExpenses(), [])
-  const categories = useMemo(() => getExpenseCategories(), [])
+  const { props } = usePage()
+  const allExpenses = (props as any).expenses || []
+  const allCategories = (props as any).categories || []
 
   const filtered = useMemo(() => {
-    return expenses.filter((e) => {
+    return allExpenses.filter((e: any) => {
       if (search) {
         const q = search.toLowerCase()
-        const numMatch = e.expenseNumber.toLowerCase().includes(q)
-        const paidToMatch = e.paidTo.toLowerCase().includes(q)
-        const catMatch = e.categoryName.toLowerCase().includes(q)
-        const refMatch = e.referenceNumber.toLowerCase().includes(q)
+        const numMatch = (e.expense_number || '').toLowerCase().includes(q)
+        const paidToMatch = (e.paid_to || '').toLowerCase().includes(q)
+        const catMatch = ((e.category?.name || e.category_name) || '').toLowerCase().includes(q)
+        const refMatch = (e.notes || '').toLowerCase().includes(q)
         if (!numMatch && !paidToMatch && !catMatch && !refMatch) return false
       }
-      if (categoryFilter !== 'all' && e.categoryId !== categoryFilter) return false
-      if (methodFilter !== 'all' && e.paymentMethod !== methodFilter) return false
+      if (categoryFilter !== 'all' && e.category_id != categoryFilter) return false
+      if (methodFilter !== 'all' && e.payment_method !== methodFilter) return false
       return true
-    }).sort((a, b) => b.date.localeCompare(a.date))
-  }, [expenses, search, categoryFilter, methodFilter])
+    }).sort((a: any, b: any) => b.date.localeCompare(a.date))
+  }, [allExpenses, search, categoryFilter, methodFilter])
 
-  const handleDelete = (id: string) => {
-    deleteExpense(id)
-    refreshCategoryStats()
-    eventBus.emit('ExpenseDeleted', { type: 'ExpenseDeleted', expenseId: id, timestamp: new Date().toISOString() })
-    setConfirmDelete(null)
+  const handleDelete = (expenseId: string) => {
+    router.delete('/expenses/' + expenseId, {
+      onSuccess: () => setConfirmDelete(null),
+      onError: () => setConfirmDelete(null),
+    })
   }
 
   return (
@@ -61,7 +57,7 @@ export default function ExpenseListPage() {
             <span className="text-xs font-semibold uppercase tracking-wider">Expenses</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">All Expenses</h1>
-          <p className="text-sm text-muted-foreground mt-1">{expenses.length} expense{expenses.length !== 1 ? 's' : ''} recorded</p>
+          <p className="text-sm text-muted-foreground mt-1">{allExpenses.length} expense{allExpenses.length !== 1 ? 's' : ''} recorded</p>
         </div>
         <button
           onClick={() => router.visit('/expenses/new')}
@@ -88,7 +84,7 @@ export default function ExpenseListPage() {
           className="h-10 px-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring"
         >
           <option value="all">All Categories</option>
-          {categories.filter((c) => c.active).map((c) => (
+          {allCategories.filter((c: any) => c.active).map((c: any) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
@@ -126,34 +122,34 @@ export default function ExpenseListPage() {
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-center py-12 text-sm text-muted-foreground">
-                      {expenses.length === 0 ? 'No expenses recorded yet. Click "Add Expense" to begin.' : 'No expenses match your filters.'}
+                      {allExpenses.length === 0 ? 'No expenses recorded yet. Click "Add Expense" to begin.' : 'No expenses match your filters.'}
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((exp) => (
+                  filtered.map((exp: any) => (
                     <tr key={exp.id} className="border-b border-border hover:bg-muted/30 transition-colors">
                       <Td>
-                        <Link href={`/expenses/${exp.expenseNumber}`} className="text-sm font-semibold text-foreground hover:text-primary transition-colors">
-                          {exp.expenseNumber}
+                        <Link href={`/expenses/${exp.expense_number}`} className="text-sm font-semibold text-foreground hover:text-primary transition-colors">
+                          {exp.expense_number}
                         </Link>
                       </Td>
                       <Td className="text-sm text-muted-foreground">{exp.date}</Td>
                       <Td>
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">{exp.categoryName}</Badge>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">{exp.category?.name || exp.category_name}</Badge>
                       </Td>
-                      <Td className="text-sm">{exp.paidTo}</Td>
+                      <Td className="text-sm">{exp.paid_to}</Td>
                       <Td>
-                        <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-5', METHOD_COLORS[exp.paymentMethod] || '')}>
-                          {exp.paymentMethod}
+                        <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-5', METHOD_COLORS[exp.payment_method] || '')}>
+                          {exp.payment_method}
                         </Badge>
                       </Td>
                       <Td className="text-sm font-semibold text-right text-red-600 dark:text-red-400">{formatCurrency(exp.amount)}</Td>
                       <Td className="text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => router.visit(`/expenses/${exp.expenseNumber}`)} className="flex items-center justify-center size-7 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="View">
+                          <button onClick={() => router.visit(`/expenses/${exp.expense_number}`)} className="flex items-center justify-center size-7 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="View">
                             <ArrowRight className="size-3.5" />
                           </button>
-                          <button onClick={() => router.visit(`/expenses/${exp.expenseNumber}/edit`)} className="flex items-center justify-center size-7 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Edit">
+                          <button onClick={() => router.visit(`/expenses/${exp.expense_number}/edit`)} className="flex items-center justify-center size-7 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Edit">
                             <Pencil className="size-3.5" />
                           </button>
                           <button onClick={() => setConfirmDelete(exp.id)} className="flex items-center justify-center size-7 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Delete">
@@ -174,11 +170,11 @@ export default function ExpenseListPage() {
       <div className="sm:hidden space-y-2">
         {filtered.length === 0 ? (
           <div className="text-center py-16 text-sm text-muted-foreground">
-            {expenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses match your filters.'}
+            {allExpenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses match your filters.'}
           </div>
         ) : (
-          filtered.map((exp) => (
-            <button key={exp.id} onClick={() => router.visit(`/expenses/${exp.expenseNumber}`)} className="w-full text-left group">
+          filtered.map((exp: any) => (
+            <button key={exp.id} onClick={() => router.visit(`/expenses/${exp.expense_number}`)} className="w-full text-left group">
               <Card size="sm" className="transition-all hover:shadow-sm active:scale-[0.99]">
                 <CardContent className="p-0">
                   <div className="flex items-center gap-4 px-4 py-3.5">
@@ -187,14 +183,14 @@ export default function ExpenseListPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">{exp.expenseNumber}</span>
-                        <Badge variant="outline" className="text-[10px]">{exp.categoryName}</Badge>
+                        <span className="text-sm font-semibold text-foreground">{exp.expense_number}</span>
+                        <Badge variant="outline" className="text-[10px]">{exp.category?.name || exp.category_name}</Badge>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">{exp.paidTo} · {exp.date}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{exp.paid_to} &middot; {exp.date}</div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-sm font-bold text-red-600 dark:text-red-400">{formatCurrency(exp.amount)}</div>
-                      <div className="text-[10px] text-muted-foreground capitalize">{exp.paymentMethod}</div>
+                      <div className="text-[10px] text-muted-foreground capitalize">{exp.payment_method}</div>
                     </div>
                   </div>
                 </CardContent>

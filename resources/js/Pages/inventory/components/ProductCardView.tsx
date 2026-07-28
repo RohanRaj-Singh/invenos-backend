@@ -14,7 +14,8 @@ interface BackendProduct {
   stock_quantity: number
   status: string
   selling_units: any[]
-  cost_price: number
+  last_purchase_cost?: number | null
+  default_purchase_cost?: number | null
 }
 
 interface ProductCardViewProps {
@@ -93,7 +94,7 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Cost: {formatCurrency(product.cost_price || 0)}</span>
+                    <span>Cost: {formatCurrency(product.last_purchase_cost ?? product.default_purchase_cost ?? 0)}</span>
                   </div>
                   <StockBadge status={product.status} size="xs" />
                 </div>

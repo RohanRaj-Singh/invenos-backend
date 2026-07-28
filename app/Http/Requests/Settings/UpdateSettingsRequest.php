@@ -32,9 +32,13 @@ class UpdateSettingsRequest extends FormRequest
             'purchases' => 'nullable|array',
             'purchases.purchase_prefix' => 'nullable|string|max:20',
             'receipt' => 'nullable|array',
+            'receipt.*' => 'nullable',
             'receipt.header_text' => 'nullable|string|max:500',
             'receipt.footer_text' => 'nullable|string|max:500',
-            'receipt.paper_width' => 'nullable|integer|min:40|max:100',
+            'receipt.terms_conditions' => 'nullable|string|max:2000',
+            'receipt.purchase_title' => 'nullable|string|max:100',
+            'receipt.sale_title' => 'nullable|string|max:100',
+            'receipt.paper_size' => 'nullable|string|in:A4,A5,58mm,80mm',
         ];
     }
 }
