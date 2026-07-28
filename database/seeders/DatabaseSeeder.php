@@ -65,22 +65,27 @@ class DatabaseSeeder extends Seeder
             'receipt' => ['header_text' => 'Thank you for your business!', 'footer_text' => 'Goods once sold will not be taken back.', 'show_business_logo' => true, 'print_address' => true, 'print_phone' => true, 'print_barcode' => false, 'paper_width' => 80],
         ]]);
 
-        // 4. Contacts
+        // 4. Contacts (static — no Faker dependency)
+        $customerNames = ['Ahmed Khan', 'Fatima Ali', 'Muhammad Usman', 'Ayesha Malik', 'Bilal Hussain', 'Sana Tariq', 'Omar Farooq', 'Zainab Noor', 'Hassan Raza', 'Nadia Shah'];
+        $customerPhones = ['0300-1234001', '0300-1234002', '0300-1234003', '0300-1234004', '0300-1234005', '0300-1234006', '0300-1234007', '0300-1234008', '0300-1234009', '0300-1234010'];
+        $supplierNames = ['Al-Rashid Pharma', 'National Distributors', 'MediPlus Traders', 'Al-Karim Stores', 'Shalimar Suppliers'];
+        $supplierPhones = ['042-35760001', '042-35760002', '042-35760003', '042-35760004', '042-35760005'];
+
         $customers = collect();
-        foreach (range(1, 10) as $i) {
+        foreach (range(0, 9) as $i) {
             $customers->push(Contact::create([
-                'type' => 'person', 'roles' => ['customer'], 'name' => fake()->name(),
-                'phone' => fake()->phoneNumber(), 'email' => fake()->email(),
-                'address' => fake()->address(), 'opening_balance' => 0, 'balance_type' => 'receivable', 'current_balance' => 0,
+                'type' => 'person', 'roles' => ['customer'], 'name' => $customerNames[$i],
+                'phone' => $customerPhones[$i], 'email' => strtolower(str_replace(' ', '.', $customerNames[$i])) . '@example.com',
+                'address' => $customerNames[$i] . ' House, Lahore', 'opening_balance' => 0, 'balance_type' => 'receivable', 'current_balance' => 0,
             ]));
         }
         $suppliers = collect();
-        foreach (range(1, 5) as $i) {
+        foreach (range(0, 4) as $i) {
             $suppliers->push(Contact::create([
-                'type' => 'organization', 'roles' => ['supplier'], 'name' => fake()->company(),
-                'company_name' => fake()->company(), 'contact_person' => fake()->name(),
-                'phone' => fake()->phoneNumber(), 'email' => fake()->email(),
-                'address' => fake()->address(), 'opening_balance' => 0, 'balance_type' => 'payable', 'current_balance' => 0,
+                'type' => 'organization', 'roles' => ['supplier'], 'name' => $supplierNames[$i],
+                'company_name' => $supplierNames[$i], 'contact_person' => $customerNames[$i] ?? 'Contact Person',
+                'phone' => $supplierPhones[$i], 'email' => strtolower(str_replace(' ', '_', $supplierNames[$i])) . '@example.com',
+                'address' => $supplierNames[$i] . ', Lahore', 'opening_balance' => 0, 'balance_type' => 'payable', 'current_balance' => 0,
             ]));
         }
 
@@ -89,27 +94,37 @@ class DatabaseSeeder extends Seeder
         foreach (['Medicine', 'Cosmetics', 'Groceries', 'Clinic Supplies', 'Mobile Accessories'] as $name) {
             $categories->push(Category::create(['name' => $name, 'description' => "$name category"]));
         }
+        $productNames = ['Paracetamol 500mg', 'Amoxil 250mg', 'Vitamin C 1000mg', 'Hand Sanitizer', 'Face Mask Box',
+            'Basmati Rice 1kg', 'Cooking Oil 5L', 'Sugar 1kg', 'Tea 200g', 'Soap Bar',
+            'Shampoo 200ml', 'Moisturizer 50ml', 'First Aid Kit', 'Bandage Roll', 'Cotton Balls',
+            'Phone Screen Guard', 'USB Cable', 'Charger Adapter', 'Earphones', 'Phone Case'];
+        $skuPrefixes = ['MED', 'MED', 'MED', 'COS', 'COS', 'GRO', 'GRO', 'GRO', 'GRO', 'COS',
+            'COS', 'COS', 'SUP', 'SUP', 'SUP', 'MOB', 'MOB', 'MOB', 'MOB', 'MOB'];
+        $baseUnits = ['piece', 'piece', 'piece', 'ml', 'piece', 'g', 'ml', 'g', 'g', 'piece',
+            'ml', 'ml', 'piece', 'piece', 'piece', 'piece', 'piece', 'piece', 'piece', 'piece'];
+
         $products = collect();
-        foreach (range(1, 20) as $i) {
+        foreach (range(0, 19) as $i) {
+            $cat = $categories[$i < 3 ? 0 : ($i < 7 ? 1 : ($i < 9 ? 2 : ($i < 15 ? 3 : 4)))];
             $product = Product::create([
-                'name' => fake()->unique()->words(3, true),
-                'sku' => strtoupper(fake()->unique()->bothify('SKU-####')),
-                'barcode' => fake()->unique()->ean13(),
-                'category_id' => $categories->random()->id,
-                'description' => fake()->sentence(),
-                'base_unit_id' => fake()->randomElement(['piece', 'g', 'kg', 'ml']),
-                'stock_quantity' => fake()->numberBetween(0, 500),
+                'name' => $productNames[$i],
+                'sku' => $skuPrefixes[$i] . '-' . str_pad((string)($i + 1), 4, '0', STR_PAD_LEFT),
+                'barcode' => '890' . str_pad((string)(10000000000 + $i), 10, '0', STR_PAD_LEFT),
+                'category_id' => $cat->id,
+                'description' => "$productNames[$i] — stock product",
+                'base_unit_id' => $baseUnits[$i],
+                'stock_quantity' => 100 + ($i * 25),
                 'low_stock_threshold' => 10,
                 'status' => 'in-stock',
-                'supplier_name' => fake()->company(),
+                'supplier_name' => $supplierNames[$i % 5],
                 'created_by' => 'Seeder',
             ]);
             SellingUnit::create([
                 'product_id' => $product->id,
-                'name' => fake()->randomElement(['Single', 'Strip', 'Box']),
-                'unit_id' => 'piece',
-                'quantity' => fake()->randomElement([1, 10, 50]),
-                'sale_price' => fake()->randomFloat(0, 50, 5000),
+                'name' => 'Single',
+                'unit_id' => $baseUnits[$i],
+                'quantity' => 1,
+                'sale_price' => 50 + ($i * 30),
                 'is_default' => true,
             ]);
             $products->push($product);
@@ -117,13 +132,13 @@ class DatabaseSeeder extends Seeder
 
         // 6. Sales
         foreach (range(1, 15) as $i) {
-            $total = fake()->randomFloat(0, 100, 50000);
+            $total = $i * 1000 + 500;
             $sale = Sale::create([
                 'invoice_number' => 'INV-' . str_pad((string)(1000 + $i), 5, '0', STR_PAD_LEFT),
-                'source' => fake()->randomElement(['pos', 'clinic']),
-                'date' => fake()->dateTimeBetween('-30 days')->format('Y-m-d'),
+                'source' => $i % 3 === 0 ? 'clinic' : 'pos',
+                'date' => now()->subDays(30 - $i)->format('Y-m-d'),
                 'customer_id' => $customers->random()->id,
-                'customer_name' => fake()->name(),
+                'customer_name' => $customerNames[array_rand($customerNames)],
                 'subtotal' => $total,
                 'grand_total' => $total,
                 'amount_paid' => $total,
@@ -131,9 +146,9 @@ class DatabaseSeeder extends Seeder
                 'payment_status' => 'paid',
                 'created_by' => 'Seeder',
             ]);
-            foreach ($products->random(rand(1, 4)) as $product) {
-                $qty = rand(1, 5);
-                $price = rand(50, 500);
+            foreach ($products->random(min(4, $products->count())) as $product) {
+                $qty = 1;
+                $price = ($product->id * 10) + 50;
                 SaleItem::create([
                     'sale_id' => $sale->id,
                     'product_id' => $product->id,
@@ -150,12 +165,12 @@ class DatabaseSeeder extends Seeder
 
         // 7. Purchases
         foreach (range(1, 10) as $i) {
-            $total = fake()->randomFloat(0, 1000, 100000);
-            $bill = PurchaseBill::create([
+            $total = $i * 5000 + 1000;
+            PurchaseBill::create([
                 'invoice_ref' => 'PUR-' . str_pad((string)(1000 + $i), 5, '0', STR_PAD_LEFT),
                 'supplier_id' => $suppliers->random()->id,
-                'supplier_name' => fake()->company(),
-                'date' => fake()->dateTimeBetween('-30 days')->format('Y-m-d'),
+                'supplier_name' => $supplierNames[array_rand($supplierNames)],
+                'date' => now()->subDays(30 - $i)->format('Y-m-d'),
                 'subtotal' => $total,
                 'total_amount' => $total,
                 'amount_paid' => $total,
@@ -167,18 +182,19 @@ class DatabaseSeeder extends Seeder
         }
 
         // 8. Expenses
-        foreach (['Rent', 'Electricity', 'Internet', 'Salaries', 'Fuel', 'Office Supplies', 'Marketing'] as $name) {
-            ExpenseCategory::create(['name' => $name, 'description' => "$name expenses", 'color' => fake()->hexColor()]);
+        $expenseCategories = ['Rent', 'Electricity', 'Internet', 'Salaries', 'Fuel', 'Office Supplies', 'Marketing'];
+        foreach ($expenseCategories as $name) {
+            ExpenseCategory::create(['name' => $name, 'description' => "$name expenses", 'color' => '#78716c']);
         }
         foreach (range(1, 20) as $i) {
             Expense::create([
                 'expense_number' => 'EXP-' . str_pad((string)(1000 + $i), 6, '0', STR_PAD_LEFT),
-                'date' => fake()->dateTimeBetween('-30 days')->format('Y-m-d'),
+                'date' => now()->subDays(30 - ($i % 30))->format('Y-m-d'),
                 'category_id' => ExpenseCategory::inRandomOrder()->first()->id,
-                'amount' => fake()->randomFloat(0, 100, 50000),
-                'paid_to' => fake()->company(),
-                'payment_method' => fake()->randomElement(['cash', 'card', 'transfer']),
-                'notes' => fake()->sentence(),
+                'amount' => $i * 500 + 100,
+                'paid_to' => 'Vendor ' . $i,
+                'payment_method' => ['cash', 'card', 'transfer'][$i % 3],
+                'notes' => 'Expense entry #' . $i,
                 'created_by' => 'Seeder',
             ]);
         }
