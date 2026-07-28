@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { router } from '@inertiajs/react'
+import { router, usePage } from '@inertiajs/react'
 import {
   Stethoscope, ArrowRight, Phone, Calendar, Users, Search, Plus, X, User
 } from 'lucide-react'
@@ -8,53 +8,64 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { mockPatients, mockVisits, addPatient } from '@/data/clinic'
 import { cn } from '@/lib/utils'
 
+interface BackendPatient {
+  id: number
+  name: string
+  phone: string
+  address: string | null
+  created_at: string
+  consultations_count?: number
+}
+
 export default function ClinicPage() {
-  const [search, setSearch] = useState('')
+  const { props } = usePage()
+  const patients = (props as any).patients || []
+  const statsRaw = (props as any).stats || {}
+  const filters = (props as any).filters || {}
+
+  const [search, setSearch] = useState(filters.search || '')
   const [showAddDialog, setShowAddDialog] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
 
   // New patient form state
   const [formName, setFormName] = useState('')
   const [formPhone, setFormPhone] = useState('')
   const [formAddress, setFormAddress] = useState('')
-  const [formGender, setFormGender] = useState<'male' | 'female'>('male')
-  const [formAge, setFormAge] = useState('')
-  const [formBloodGroup, setFormBloodGroup] = useState('')
 
   const filteredPatients = useMemo(() => {
-    if (!search.trim()) return mockPatients
+    if (!search.trim()) return patients
     const q = search.toLowerCase()
-    return mockPatients.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.phone.includes(q) ||
-        p.bloodGroup?.toLowerCase().includes(q)
+    return patients.filter((p: BackendPatient) =>
+      p.name.toLowerCase().includes(q) || p.phone.includes(q)
     )
-  }, [search, refreshKey])
+  }, [search, patients])
 
   const handleAddPatient = () => {
-    if (!formName.trim() || !formPhone.trim() || !formAge.trim()) {
-      toast.error('Please fill in name, phone, and age')
+    if (!formName.trim() || !formPhone.trim()) {
+      toast.error('Please fill in name and phone')
       return
     }
-    const patient = addPatient({
+    router.post('/contacts', {
       name: formName.trim(),
       phone: formPhone.trim(),
       address: formAddress.trim(),
-      gender: formGender,
-      age: parseInt(formAge) || 30,
-      bloodGroup: formBloodGroup || undefined,
+      roles: ['patient', 'customer'],
+      type: 'person',
+      _redirect_url: '/clinic',
+    }, {
+      preserveState: true,
+      onSuccess: () => {
+        toast.success(`${formName.trim()} registered as patient`)
+        setShowAddDialog(false)
+        setFormName(''); setFormPhone(''); setFormAddress('')
+        router.reload()
+      },
+      onError: (errs) => {
+        const msg = Object.values(errs).join(', ')
+        toast.error(msg || 'Failed to register patient')
+      },
     })
-    setRefreshKey((k) => k + 1)
-    setShowAddDialog(false)
-    toast.success(`${formName.trim()} registered as patient`)
-    router.visit(`/clinic/patient/${patient.id}`)
-    // Reset form
-    setFormName(''); setFormPhone(''); setFormAddress('')
-    setFormGender('male'); setFormAge(''); setFormBloodGroup('')
   }
 
   return (
@@ -73,11 +84,7 @@ export default function ClinicPage() {
             Manage patient records, visits, and prescriptions.
           </p>
         </div>
-        <Button
-          size="sm"
-          className="gap-1.5 shadow-sm"
-          onClick={() => setShowAddDialog(true)}
-        >
+        <Button size="sm" className="gap-1.5 shadow-sm" onClick={() => setShowAddDialog(true)}>
           <Plus className="size-3.5" />
           <span className="hidden sm:inline">New Patient</span>
         </Button>
@@ -86,66 +93,31 @@ export default function ClinicPage() {
       {/* Search bar */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search patients by name, phone, or blood group..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full h-10 pl-9 pr-9 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 transition-colors"
-        />
+        <input type="text" placeholder="Search patients by name or phone..."
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          className="w-full h-10 pl-9 pr-9 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 transition-colors" />
         {search && (
-          <button
-            onClick={() => setSearch('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-          >
+          <button onClick={() => setSearch('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
             <X className="size-4" />
           </button>
         )}
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <Card size="sm">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-primary mb-1">
-              <Users className="size-4" />
-            </div>
-            <div className="text-xl font-bold">{mockPatients.length}</div>
+            <div className="flex items-center gap-2 text-primary mb-1"><Users className="size-4" /></div>
+            <div className="text-xl font-bold">{statsRaw.total_patients ?? patients.length}</div>
             <div className="text-xs text-muted-foreground">Total Patients</div>
           </CardContent>
         </Card>
         <Card size="sm">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-emerald-500 mb-1">
-              <Calendar className="size-4" />
-            </div>
-            <div className="text-xl font-bold">
-              {mockPatients.filter((p) => {
-                if (!p.lastVisit || p.lastVisit === '—') return false
-                const parts = p.lastVisit.split(' ')
-                if (parts.length < 3) return false
-                const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
-                const month = months[parts[1]]
-                const day = parseInt(parts[0])
-                const year = parseInt(parts[2])
-                const visitDate = new Date(year, month, day)
-                const weekAgo = new Date()
-                weekAgo.setDate(weekAgo.getDate() - 7)
-                return visitDate >= weekAgo
-              }).length}
-            </div>
+            <div className="flex items-center gap-2 text-emerald-500 mb-1"><Calendar className="size-4" /></div>
+            <div className="text-xl font-bold">{statsRaw.this_week_visits ?? 0}</div>
             <div className="text-xs text-muted-foreground">This Week</div>
-          </CardContent>
-        </Card>
-        <Card size="sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-amber-500 mb-1">
-              <Stethoscope className="size-4" />
-            </div>
-            <div className="text-xl font-bold">
-              {mockVisits.filter((v) => v.status === 'follow-up' || v.status === 'scheduled').length}
-            </div>
-            <div className="text-xs text-muted-foreground">Follow-ups</div>
           </CardContent>
         </Card>
       </div>
@@ -160,19 +132,11 @@ export default function ClinicPage() {
             <Button variant="outline" size="sm" onClick={() => setSearch('')}>Clear Search</Button>
           </div>
         ) : (
-          filteredPatients.map((patient) => {
-            const initials = patient.name
-              .split(' ')
-              .map((n) => n[0])
-              .join('')
-              .slice(0, 2)
-
+          filteredPatients.map((patient: BackendPatient) => {
+            const initials = patient.name.split(' ').map((n) => n[0]).join('').slice(0, 2)
             return (
-              <button
-                key={patient.id}
-                onClick={() => router.visit(`/clinic/patient/${patient.id}`)}
-                className="group text-left"
-              >
+              <button key={patient.id} onClick={() => router.visit(`/clinic/patient/${patient.id}`)}
+                className="group text-left">
                 <Card className="h-full transition-all hover:shadow-md hover:border-primary/30 active:scale-[0.98]">
                   <CardContent className="p-0">
                     <div className="p-5">
@@ -182,21 +146,7 @@ export default function ClinicPage() {
                         </div>
                         <ArrowRight className="size-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors mt-1" />
                       </div>
-
-                      <h3 className="text-sm font-semibold text-foreground mb-1">
-                        {patient.name}
-                      </h3>
-
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
-                        <span>{patient.gender === 'male' ? 'Male' : 'Female'}, {patient.age} yrs</span>
-                        {patient.bloodGroup && (
-                          <>
-                            <span>·</span>
-                            <span>{patient.bloodGroup}</span>
-                          </>
-                        )}
-                      </div>
-
+                      <h3 className="text-sm font-semibold text-foreground mb-1">{patient.name}</h3>
                       <div className="space-y-1.5">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Phone className="size-3" />
@@ -204,13 +154,12 @@ export default function ClinicPage() {
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Calendar className="size-3" />
-                          <span>Registered {patient.registrationDate}</span>
+                          <span>Registered {patient.created_at?.split('T')[0] || '—'}</span>
                         </div>
                       </div>
-
                       <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
                         <span className="text-[11px] text-muted-foreground">
-                          Last visit: {patient.lastVisit || '—'}
+                          {(patient as any).consultations_count || 0} visits
                         </span>
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal">
                           View Profile
@@ -234,50 +183,21 @@ export default function ClinicPage() {
           <div className="p-5 space-y-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">Full Name <span className="text-red-500">*</span></label>
-              <input type="text" placeholder="e.g. Muhammad Ali" value={formName} onChange={(e) => setFormName(e.target.value)}
+              <input type="text" placeholder="e.g. Muhammad Ali" value={formName}
+                onChange={(e) => setFormName(e.target.value)}
                 className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Phone <span className="text-red-500">*</span></label>
-                <input type="text" placeholder="0300-1234567" value={formPhone} onChange={(e) => setFormPhone(e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Age <span className="text-red-500">*</span></label>
-                <input type="number" placeholder="30" value={formAge} onChange={(e) => setFormAge(e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="1" />
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">Phone <span className="text-red-500">*</span></label>
+              <input type="text" placeholder="0300-1234567" value={formPhone}
+                onChange={(e) => setFormPhone(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">Gender</label>
-              <div className="flex gap-2">
-                <button onClick={() => setFormGender('male')}
-                  className={cn('flex-1 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all', formGender === 'male' ? 'border-primary bg-primary/5 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
-                  Male
-                </button>
-                <button onClick={() => setFormGender('female')}
-                  className={cn('flex-1 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all', formGender === 'female' ? 'border-primary bg-primary/5 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
-                  Female
-                </button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Blood Group</label>
-                <select value={formBloodGroup} onChange={(e) => setFormBloodGroup(e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30">
-                  <option value="">Select</option>
-                  {['A+','A-','B+','B-','O+','O-','AB+','AB-'].map((bg) => (
-                    <option key={bg} value={bg}>{bg}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Address</label>
-                <input type="text" placeholder="e.g. Lahore" value={formAddress} onChange={(e) => setFormAddress(e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
-              </div>
+              <label className="text-xs font-medium text-foreground">Address</label>
+              <input type="text" placeholder="e.g. Lahore" value={formAddress}
+                onChange={(e) => setFormAddress(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
             </div>
             <Button onClick={handleAddPatient} size="lg" className="w-full h-11 gap-1.5 shadow-sm">
               <User className="size-4" /> Register Patient

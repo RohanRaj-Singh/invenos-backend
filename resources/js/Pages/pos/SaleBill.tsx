@@ -40,7 +40,7 @@ import {
   getStepForUnit,
 } from '@/domain/products/unit-stepping'
 import { getDefaultSellingUnit } from '@/lib/product-adapter'
-import { getUnit } from '@/lib/units'
+import { getUnit, convert } from '@/lib/units'
 import { router, usePage } from '@inertiajs/react'
 
 // ─── Cart persistence helpers (inline pos-utils replacement) ───
@@ -377,40 +377,28 @@ export default function SaleBillPage() {
       const bu = product.baseUnitId
       const opts: CustomUnitOption[] = []
       if (unit.measurementType === 'weight') {
-        opts.push({
-          id: '__custom_gram',
-          label: 'Gram (g)',
-          factor: bu === 'kg' ? 0.001 : 1,
-        })
-        opts.push({
-          id: '__custom_kg',
-          label: 'Kilogram (kg)',
-          factor: bu === 'kg' ? 1 : 1000,
-        })
+        if (convert(1, 'g', bu) !== null) {
+          opts.push({ id: '__custom_gram', label: 'Gram (g)', factor: convert(1, 'g', bu) ?? 1 })
+        }
+        if (convert(1, 'kg', bu) !== null) {
+          opts.push({ id: '__custom_kg', label: 'Kilogram (kg)', factor: convert(1, 'kg', bu) ?? 1000 })
+        }
       }
       if (unit.measurementType === 'volume') {
-        opts.push({
-          id: '__custom_ml',
-          label: 'Millilitre (ml)',
-          factor: bu === 'liter' ? 0.001 : 1,
-        })
-        opts.push({
-          id: '__custom_liter',
-          label: 'Litre (L)',
-          factor: bu === 'liter' ? 1 : 1000,
-        })
+        if (convert(1, 'ml', bu) !== null) {
+          opts.push({ id: '__custom_ml', label: 'Millilitre (ml)', factor: convert(1, 'ml', bu) ?? 1 })
+        }
+        if (convert(1, 'liter', bu) !== null) {
+          opts.push({ id: '__custom_liter', label: 'Litre (L)', factor: convert(1, 'liter', bu) ?? 1000 })
+        }
       }
       if (unit.measurementType === 'length') {
-        opts.push({
-          id: '__custom_cm',
-          label: 'Per cm',
-          factor: bu === 'meter' ? 0.01 : 1,
-        })
-        opts.push({
-          id: '__custom_meter',
-          label: 'Per Meter',
-          factor: bu === 'meter' ? 1 : 100,
-        })
+        if (convert(1, 'cm', bu) !== null) {
+          opts.push({ id: '__custom_cm', label: 'Per cm', factor: convert(1, 'cm', bu) ?? 0.01 })
+        }
+        if (convert(1, 'meter', bu) !== null) {
+          opts.push({ id: '__custom_meter', label: 'Per Meter', factor: convert(1, 'meter', bu) ?? 100 })
+        }
       }
       return opts
     },

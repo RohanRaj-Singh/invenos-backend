@@ -15,6 +15,7 @@ class SaleItemData
         public readonly ?string $packagingName,
         public readonly float $discountPct,
         public readonly string $category,
+        public readonly ?int $sellingUnitId = null,
     ) {}
 
     public static function fromArray(array $data): self
@@ -24,12 +25,13 @@ class SaleItemData
             productName: $data['product_name'] ?? '',
             packagingQuantity: (float) ($data['quantity'] ?? $data['packaging_quantity'] ?? 1),
             baseUnitQuantity: (float) ($data['base_unit_quantity'] ?? 1),
-            baseQuantity: (float) ($data['quantity'] ?? $data['base_quantity'] ?? 1),
+            baseQuantity: (float) ($data['base_quantity'] ?? ($data['quantity'] ?? $data['packaging_quantity'] ?? 1)),
             unitPrice: (float) ($data['unit_price'] ?? 0),
             total: (float) ($data['total'] ?? 0),
             packagingName: $data['packaging_name'] ?? null,
             discountPct: (float) ($data['discount_pct'] ?? 0),
             category: $data['category'] ?? '',
+            sellingUnitId: isset($data['selling_unit_id']) ? (int) $data['selling_unit_id'] : null,
         );
     }
 }

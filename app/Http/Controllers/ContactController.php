@@ -49,6 +49,12 @@ class ContactController extends Controller
         $data = CreateContactData::fromRequest($request->validated());
         $contact = $this->contactService->create($data);
 
+        // If a _redirect_url is provided (e.g., from clinic module), use it instead
+        if ($redirectUrl = $request->input('_redirect_url')) {
+            return redirect($redirectUrl)
+                ->with('success', 'Contact created successfully.');
+        }
+
         return redirect()->route('contacts.show', $contact->id)
             ->with('success', 'Contact created successfully.');
     }

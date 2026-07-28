@@ -1,27 +1,20 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { router, usePage } from '@inertiajs/react'
-import { ArrowLeft, Plus, Save, Pill, Clock, CalendarDays, FileText, Package, Edit3, X } from 'lucide-react'
+import { ArrowLeft, Plus, Save, Pill, Clock, CalendarDays, FileText, Package, Upload, X, Image as ImageIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { mockPatients, addVisit, addPrescription } from '@/data/clinic'
-import { allSales } from '@/data/sales'
-import { formatCurrency } from '@/data/dashboard'
-import { addTransaction } from '@/data/financial-transactions'
+import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { getCurrentUserName } from '@/data/users'
-import AddMedicineDialog from '../components/AddMedicineDialog'
+import AddMedicineDialog from './components/AddMedicineDialog'
 import type { MedicineEntry } from '../components/AddMedicineDialog'
 
 const paymentOptions = [
-  { id: 'full', label: 'Full Payment', desc: 'Pay entire amount now' },
-  { id: 'partial', label: 'Partial Payment', desc: 'Pay part now, rest later' },
-  { id: 'balance', label: 'Add To Balance', desc: 'No payment now' },
-] as const
-
-type PaymentOption = (typeof paymentOptions)[number]['id']
+  { id: 'full' as const, label: 'Full Payment', desc: 'Pay entire amount now' },
+  { id: 'partial' as const, label: 'Partial Payment', desc: 'Pay part now, rest later' },
+  { id: 'balance' as const, label: 'Add To Balance', desc: 'No payment now' },
+]
 
 const paymentMethods = [
   { id: 'cash' as const, label: 'Cash' },
@@ -32,26 +25,34 @@ const paymentMethods = [
 ]
 
 export default function NewVisitPage() {
-  const { url } = usePage();
-  const id = url.split('/').pop() || '';
-  const patient = mockPatients.find((p) => p.id === id) || mockPatients[0]
+  const { props, url } = usePage()
+  const patient = (props as any).patient
+  // Products and selling units come from server
+  const serverProducts = (props as any).products || []
 
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')
   const [consultationFee, setConsultationFee] = useState('2000')
-  const [paymentOption, setPaymentOption] = useState<PaymentOption>('full')
+  const [paymentOption, setPaymentOption] = useState<'full' | 'partial' | 'balance'>('full')
   const [paymentMethod, setPaymentMethod] = useState<string>('cash')
   const [selectedMeds, setSelectedMeds] = useState<MedicineEntry[]>([])
   const [showMedDialog, setShowMedDialog] = useState(false)
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [prescriptionImages, setPrescriptionImages] = useState<File[]>([])
+  const [imagePreviews, setImagePreviews] = useState<string[]>([])
+  const [uploadingImages, setUploadingImages] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Completion state
-  const [showCompletion, setShowCompletion] = useState(false)
-  const [completionData, setCompletionData] = useState<{
-    visitId: string; saleId: string; invoiceNumber: string
-    grandTotal: number; amountPaid: number; outstanding: number
-    paymentOption: PaymentOption; prescriptionCount: number
-  } | null>(null)
+  // (no completion dialog — Inertia redirects after POST, so we use toast instead)
+
+  if (!patient) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto text-center py-24 text-sm text-muted-foreground">
+        Patient not found.
+      </div>
+    )
+  }
 
   const handleAddMedicine = (entry: MedicineEntry) => {
     if (editingIdx !== null) {
@@ -76,103 +77,69 @@ export default function NewVisitPage() {
   const grandTotal = consultationAmount + medTotal
 
   const handleSave = () => {
-    if (!diagnosis.trim()) {
-      toast.error('Please enter a diagnosis')
-      return
-    }
+    if (!diagnosis.trim()) { toast.error('Please enter a diagnosis'); return }
+    setSaving(true)
 
     const amountPaid = paymentOption === 'full' ? grandTotal : paymentOption === 'partial' ? Math.round(grandTotal * 0.4) : 0
     const outstanding = grandTotal - amountPaid
-    const today = new Date().toISOString().split('T')[0]
 
-    // 1. Create Sale record
-    const saleIdx = allSales.length + 1
-    const invoiceNum = `INV-${String(1000 + saleIdx)}`
-    const sale = {
-      id: `sal-${String(saleIdx).padStart(3, '0')}`,
-      invoiceNumber: invoiceNum,
-      source: 'clinic' as const,
-      date: today,
-      patientId: patient.contactId || patient.id,
-      items: selectedMeds.map((m) => ({
-        id: m.id, productId: m.productId, name: m.name,
-        packagingName: m.packagingName, packagingQuantity: m.packagingQuantity,
-        baseUnitQuantity: m.baseUnitQuantity, baseQuantity: m.baseQuantity,
-        unitPrice: m.unitPrice, total: m.total, category: m.category,
+    // Payment: sale only tracks medicine costs, consultation fee is stored on consultation
+    const medicineAmountPaid = Math.min(amountPaid, medTotal)
+    const medicinePaymentStatus = medicineAmountPaid === 0 ? 'unpaid' : medicineAmountPaid >= medTotal ? 'paid' : 'partial'
+
+    router.post('/clinic/visits', {
+      patient_id: patient.id,
+      diagnosis: diagnosis.trim(),
+      notes: notes.trim(),
+      consultation_fee: consultationAmount,
+      medications: selectedMeds.map(m => ({
+        product_id: m.productId,
+        selling_unit_id: m.sellingUnitId,
+        packaging_quantity: m.packagingQuantity,
+        base_unit_quantity: m.baseUnitQuantity,
+        unit_price: m.unitPrice,
+        total: m.total,
+        packaging_name: m.packagingName,
+        dosage: m.dosage,
+        frequency: m.frequency,
+        duration: m.duration,
+        instructions: m.notes || '',
       })),
-      subtotal: grandTotal,
-      discount: 0,
-      grandTotal,
-      amountPaid,
-      outstandingBalance: outstanding,
-      paymentStatus: (amountPaid === 0 ? 'unpaid' : amountPaid >= grandTotal ? 'paid' : 'partial') as 'paid' | 'partial' | 'unpaid',
-      createdBy: getCurrentUserName(),
-      customerName: undefined,
-    }
-    allSales.push(sale)
+      payment_method: paymentMethod,
+      amount_paid: medicineAmountPaid,
+      payment_status: medicinePaymentStatus,
+    }, {
+      onSuccess: (page: any) => {
+        toast.success(`Visit saved — ${grandTotal > 0 ? 'Rs. ' + grandTotal.toLocaleString() : 'no charge'}`)
+        setSaving(false)
 
-    // 2. Create Visit record (linked to Sale)
-    const visit = addVisit({
-      patient,
-      diagnosis,
-      notes,
-      consultationFee: consultationAmount,
-      medicines: selectedMeds,
-      grandTotal,
-      amountPaid,
-      outstanding,
-      paymentOption,
-      saleId: sale.id,
+        // Upload prescription images in background (fire-and-forget after navigation)
+        const consultations = page?.props?.consultations || []
+        const prescriptionId = consultations.length > 0
+          ? consultations[0]?.prescriptions?.[0]?.id
+          : null
+        if (prescriptionId && prescriptionImages.length > 0) {
+          prescriptionImages.forEach(file => {
+            const formData = new FormData()
+            formData.append('image', file)
+            window.axios.post(`/api/prescriptions/${prescriptionId}/images`, formData).catch(() => {})
+          })
+        }
+      },
+      onError: (errs) => {
+        const msg = Object.values(errs).join(', ') || 'Failed to save visit'
+        toast.error(msg)
+        setSaving(false)
+      },
     })
-
-    // 3. Create Prescription records with dosage info
-    let rxCount = 0
-    for (const med of selectedMeds) {
-      addPrescription({
-        patientId: patient.id,
-        medicine: med.name,
-        dosage: med.dosage,
-        frequency: med.frequency,
-        duration: med.duration,
-        notes: med.notes || undefined,
-      })
-      rxCount++
-    }
-
-    // 4. Create FinancialTransaction if payment collected
-    if (amountPaid > 0 && patient.contactId) {
-      addTransaction({
-        contactId: patient.contactId,
-        direction: 'in',
-        type: 'collection',
-        date: today,
-        amount: amountPaid,
-        method: paymentMethod as any,
-        description: `Clinic visit payment — ${diagnosis}`,
-        linkedSaleId: sale.id,
-        createdBy: getCurrentUserName(),
-      })
-    }
-
-    // 5. Show completion screen
-    setCompletionData({
-      visitId: visit.id,
-      saleId: sale.id,
-      invoiceNumber: invoiceNum,
-      grandTotal,
-      amountPaid,
-      outstanding,
-      paymentOption,
-      prescriptionCount: rxCount,
-    })
-    setShowCompletion(true)
   }
 
   return (
     <>
-      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-5">
+      <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-5 pb-24">
         <div className="flex items-center justify-between">
-          <button onClick={() => router.visit(`/clinic/patient/${patient.id}`)} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={() => router.visit(`/clinic/patient/${patient.id}`)}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
             <ArrowLeft className="size-4" />
             <span>Back to {patient.name}</span>
           </button>
@@ -181,10 +148,12 @@ export default function NewVisitPage() {
         {/* Patient summary */}
         <Card size="sm">
           <CardContent className="p-4 flex items-center gap-3">
-            <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold">{patient.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</div>
+            <div className="size-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-bold">
+              {patient.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+            </div>
             <div>
               <h2 className="text-sm font-semibold">{patient.name}</h2>
-              <p className="text-xs text-muted-foreground">{patient.gender === 'male' ? 'Male' : 'Female'}, {patient.age} yrs · {patient.phone}</p>
+              <p className="text-xs text-muted-foreground">{patient.phone}</p>
             </div>
           </CardContent>
         </Card>
@@ -197,24 +166,30 @@ export default function NewVisitPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-foreground">Diagnosis <span className="text-red-500">*</span></label>
-                  <input type="text" placeholder="e.g. Seasonal allergies — mild rhinitis" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
+                  <input type="text" placeholder="e.g. Seasonal allergies — mild rhinitis" value={diagnosis}
+                    onChange={(e) => setDiagnosis(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-foreground">Clinical Notes</label>
-                  <textarea placeholder="Detailed observations, recommendations..." value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 resize-none" />
+                  <textarea placeholder="Detailed observations, recommendations..." value={notes}
+                    onChange={(e) => setNotes(e.target.value)} rows={3}
+                    className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 resize-none" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-foreground">Consultation Fee (Rs.)</label>
-                  <input type="number" value={consultationFee} onChange={(e) => setConsultationFee(e.target.value)} className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
+                  <input type="number" value={consultationFee} onChange={(e) => setConsultationFee(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
                 </div>
               </CardContent>
             </Card>
 
-            {/* Add Medicines — button opens modal */}
+            {/* Medicines */}
             <Card>
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle>Prescription Items</CardTitle>
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { setEditingIdx(null); setShowMedDialog(true) }}>
+                <Button size="sm" variant="outline" className="gap-1.5"
+                  onClick={() => { setEditingIdx(null); setShowMedDialog(true) }}>
                   <Plus className="size-3.5" /> Add Medicine
                 </Button>
               </CardHeader>
@@ -253,11 +228,13 @@ export default function NewVisitPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleEditMedicine(idx)} className="flex items-center justify-center size-7 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground">
-                            <Edit3 className="size-3" />
+                          <button onClick={() => handleEditMedicine(idx)}
+                            className="flex items-center justify-center size-7 rounded-md bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground">
+                            <svg className="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                           </button>
-                          <button onClick={() => handleRemoveMedicine(idx)} className="flex items-center justify-center size-7 rounded-md bg-muted hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-600">
-                            <X className="size-3" />
+                          <button onClick={() => handleRemoveMedicine(idx)}
+                            className="flex items-center justify-center size-7 rounded-md bg-muted hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-600">
+                            <svg className="size-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                           </button>
                         </div>
                       </div>
@@ -274,7 +251,10 @@ export default function NewVisitPage() {
               <Card>
                 <CardHeader><CardTitle>Bill Summary</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex justify-between text-sm"><span className="text-muted-foreground">Consultation Fee</span><span className="font-medium">{formatCurrency(consultationAmount)}</span></div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Consultation Fee</span>
+                    <span className="font-medium">{formatCurrency(consultationAmount)}</span>
+                  </div>
                   {selectedMeds.map((m) => (
                     <div key={m.productId} className="flex justify-between text-sm">
                       <span className="text-muted-foreground truncate max-w-[60%]">{m.name} ×{m.packagingQuantity}</span>
@@ -294,14 +274,63 @@ export default function NewVisitPage() {
                 </CardContent>
               </Card>
 
-              {/* Payment method */}
+              {/* Prescription Images */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Prescription Images</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple
+                    capture="environment"
+                    className="hidden"
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (files.length === 0) return
+                      setPrescriptionImages(prev => [...prev, ...files])
+                      files.forEach(file => {
+                        const reader = new FileReader()
+                        reader.onload = (ev) => {
+                          if (ev.target?.result) setImagePreviews(prev => [...prev, ev.target!.result as string])
+                        }
+                        reader.readAsDataURL(file)
+                      })
+                      e.target.value = ''
+                    }}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    {imagePreviews.map((preview, idx) => (
+                      <div key={idx} className="relative size-16 rounded-lg overflow-hidden border border-border group">
+                        <img src={preview} alt="" className="size-full object-cover" />
+                        <button onClick={() => {
+                          setPrescriptionImages(prev => prev.filter((_, i) => i !== idx))
+                          setImagePreviews(prev => prev.filter((_, i) => i !== idx))
+                        }}
+                          className="absolute top-0.5 right-0.5 size-5 rounded-full bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                    <button onClick={() => fileInputRef.current?.click()}
+                      className="size-16 rounded-lg border-2 border-dashed border-border hover:border-primary/50 flex flex-col items-center justify-center gap-0.5 text-muted-foreground hover:text-primary transition-colors">
+                      <Upload className="size-4" />
+                      <span className="text-[9px] font-medium">Upload</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {prescriptionImages.length > 0
+                      ? `${prescriptionImages.length} file${prescriptionImages.length > 1 ? 's' : ''} selected`
+                      : 'JPEG, PNG, or WebP — max 10MB each'}
+                  </p>
+                </CardContent>
+              </Card>
               <Card>
                 <CardHeader><CardTitle>Payment Method</CardTitle></CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-3 gap-2">
                     {paymentMethods.map((m) => (
                       <button key={m.id} onClick={() => setPaymentMethod(m.id)}
-                        className={cn('px-2 py-2 rounded-lg border-2 text-xs font-medium transition-all text-center', paymentMethod === m.id ? 'border-primary bg-primary/5 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
+                        className={cn('px-2 py-2 rounded-lg border-2 text-xs font-medium transition-all text-center',
+                          paymentMethod === m.id ? 'border-primary bg-primary/5 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
                         {m.label}
                       </button>
                     ))}
@@ -314,7 +343,9 @@ export default function NewVisitPage() {
                 <CardHeader><CardTitle>Payment</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
                   {paymentOptions.map((opt) => (
-                    <button key={opt.id} onClick={() => setPaymentOption(opt.id)} className={cn('w-full text-left p-3 rounded-xl border-2 transition-all', paymentOption === opt.id ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/30')}>
+                    <button key={opt.id} onClick={() => setPaymentOption(opt.id)}
+                      className={cn('w-full text-left p-3 rounded-xl border-2 transition-all',
+                        paymentOption === opt.id ? 'border-primary bg-primary/5' : 'border-border hover:border-muted-foreground/30')}>
                       <div className="text-sm font-medium text-foreground">{opt.label}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{opt.desc}</div>
                       {paymentOption === opt.id && opt.id === 'full' && <div className="text-xs font-semibold text-emerald-600 mt-1">Pay {formatCurrency(grandTotal)} now</div>}
@@ -327,9 +358,9 @@ export default function NewVisitPage() {
                 </CardContent>
               </Card>
 
-              <Button onClick={handleSave} size="lg" className="w-full h-11 gap-1.5 shadow-sm">
+              <Button onClick={handleSave} disabled={saving} size="lg" className="w-full h-11 gap-1.5 shadow-sm">
                 <Save className="size-4" />
-                Save Visit
+                {saving ? 'Saving...' : 'Save Visit'}
               </Button>
             </div>
           </div>
@@ -343,80 +374,9 @@ export default function NewVisitPage() {
         onAdd={handleAddMedicine}
         selectedIds={selectedMeds.map((m) => m.productId)}
         editEntry={editingIdx !== null ? selectedMeds[editingIdx] : null}
+        products={serverProducts}
       />
 
-      {/* Completion Dialog */}
-      <Dialog open={showCompletion} onOpenChange={(v) => { if (!v) { setShowCompletion(false); router.visit(`/clinic/patient/${patient.id}`) } }}>
-        <DialogContent className="sm:max-w-md gap-0 p-0">
-          <div className="bg-gradient-to-r from-primary/10 to-primary/5 p-6 text-center border-b border-border">
-            <div className="inline-flex items-center justify-center size-14 rounded-full bg-emerald-50 dark:bg-emerald-500/10 mb-3 ring-4 ring-emerald-500/10">
-              <Package className="size-7 text-emerald-600 dark:text-emerald-400" />
-            </div>
-            <div className="text-lg font-bold text-foreground">Visit Completed</div>
-            <div className="text-xs text-muted-foreground mt-1">Patient: {patient.name}</div>
-          </div>
-
-          <div className="p-5 space-y-4">
-            {/* Summary */}
-            {completionData && (
-              <div className="space-y-3">
-                <div className="rounded-xl bg-muted/30 p-4 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Invoice</span>
-                    <span className="font-medium">{completionData.invoiceNumber}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Grand Total</span>
-                    <span className="font-semibold">{formatCurrency(completionData.grandTotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Amount Paid</span>
-                    <span className={cn('font-semibold', completionData.amountPaid > 0 ? 'text-emerald-600' : 'text-red-600')}>
-                      {completionData.amountPaid > 0 ? formatCurrency(completionData.amountPaid) : '—'}
-                    </span>
-                  </div>
-                  {completionData.outstanding > 0 && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Outstanding</span>
-                      <span className="font-semibold text-amber-600">{formatCurrency(completionData.outstanding)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Prescriptions</span>
-                    <span className="font-medium">{completionData.prescriptionCount}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Payment Status</span>
-                    <Badge variant="outline" className={cn(
-                      'text-[10px] px-2 py-0 h-5',
-                      completionData.amountPaid >= completionData.grandTotal ? 'text-emerald-600 border-emerald-200 dark:border-emerald-800' : completionData.amountPaid > 0 ? 'text-amber-600 border-amber-200 dark:border-amber-800' : 'text-red-600 border-red-200 dark:border-red-800'
-                    )}>
-                      {completionData.amountPaid >= completionData.grandTotal ? 'Paid' : completionData.amountPaid > 0 ? 'Partial' : 'Unpaid'}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Next actions */}
-            <div className="space-y-2">
-              <Button
-                onClick={() => { setShowCompletion(false); router.visit(`/sales/${completionData?.saleId}`) }}
-                variant="outline"
-                className="w-full h-10 gap-1.5"
-              >
-                View Sale
-              </Button>
-              <Button
-                onClick={() => { setShowCompletion(false); router.visit(`/clinic/patient/${patient.id}`) }}
-                className="w-full h-10 gap-1.5 shadow-sm"
-              >
-                Return to Patient Timeline
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

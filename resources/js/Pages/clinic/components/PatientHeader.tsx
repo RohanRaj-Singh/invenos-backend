@@ -1,26 +1,28 @@
-import { Phone, MapPin, Calendar, Droplets } from 'lucide-react'
+import { Phone, MapPin, Calendar, User } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import type { Patient } from '@/types'
 
 interface PatientHeaderProps {
-  patient: Patient
+  patient: any
   visitCount: number
 }
 
 export default function PatientHeader({ patient, visitCount }: PatientHeaderProps) {
   const initials = patient.name
     .split(' ')
-    .map((n) => n[0])
+    .map((n: string) => n[0])
     .join('')
     .slice(0, 2)
+
+  const regDate = patient.created_at
+    ? new Date(patient.created_at).toLocaleDateString('en-PK', { day: 'numeric', month: 'short', year: 'numeric' })
+    : patient.registrationDate || '—'
 
   return (
     <Card className="overflow-hidden">
       <div className="h-20 sm:h-24 bg-gradient-to-r from-primary/80 to-primary/40" />
       <CardContent className="p-0">
         <div className="px-5 pb-5">
-          {/* Avatar overlapping the gradient */}
           <div className="flex items-end gap-4 -mt-10 mb-4">
             <div className="size-16 sm:size-20 rounded-xl bg-background ring-4 ring-background flex items-center justify-center text-xl sm:text-2xl font-bold text-primary shadow-sm">
               {initials}
@@ -31,14 +33,9 @@ export default function PatientHeader({ patient, visitCount }: PatientHeaderProp
               </h2>
               <div className="flex items-center gap-2 mt-0.5">
                 <Badge variant="outline" className="text-[11px] px-2 py-0 h-5 font-normal">
-                  {patient.gender === 'male' ? 'Male' : 'Female'}, {patient.age} yrs
+                  <User className="size-2.5 mr-1" />
+                  Patient
                 </Badge>
-                {patient.bloodGroup && (
-                  <Badge variant="outline" className="text-[11px] px-2 py-0 h-5 font-normal text-red-600 dark:text-red-400 border-red-200 dark:border-red-800">
-                    <Droplets className="size-2.5 mr-1" />
-                    {patient.bloodGroup}
-                  </Badge>
-                )}
                 <Badge variant="secondary" className="text-[11px] px-2 py-0 h-5 font-normal">
                   {visitCount} visits
                 </Badge>
@@ -46,7 +43,6 @@ export default function PatientHeader({ patient, visitCount }: PatientHeaderProp
             </div>
           </div>
 
-          {/* Info grid */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="flex items-center gap-2.5 text-sm">
               <div className="flex items-center justify-center size-8 rounded-lg bg-muted shrink-0">
@@ -63,7 +59,7 @@ export default function PatientHeader({ patient, visitCount }: PatientHeaderProp
               </div>
               <div className="min-w-0">
                 <div className="text-xs text-muted-foreground">Address</div>
-                <div className="font-medium truncate">{patient.address}</div>
+                <div className="font-medium truncate">{patient.address || '—'}</div>
               </div>
             </div>
             <div className="flex items-center gap-2.5 text-sm">
@@ -72,7 +68,7 @@ export default function PatientHeader({ patient, visitCount }: PatientHeaderProp
               </div>
               <div>
                 <div className="text-xs text-muted-foreground">Registered</div>
-                <div className="font-medium">{patient.registrationDate}</div>
+                <div className="font-medium">{regDate}</div>
               </div>
             </div>
           </div>

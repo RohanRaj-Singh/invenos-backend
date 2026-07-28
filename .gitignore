@@ -14,7 +14,7 @@
 /.zed
 /auth.json
 /node_modules
-/public/build
+# /public/build  # commented out — committed for cPanel deployment (no Node on server)
 /public/fonts-manifest.dev.json
 /public/hot
 /public/storage

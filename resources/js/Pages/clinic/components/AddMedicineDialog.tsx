@@ -1,12 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Search, Plus, Minus, X, Pill, Clock, CalendarDays, FileText, Package, Check } from 'lucide-react'
+import { Search, Plus, Minus, X, Pill, Clock, CalendarDays, FileText, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { mockProducts, getProductById } from '@/data/inventory'
-import { formatCurrency } from '@/data/dashboard'
+import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import type { Product, CartItem } from '@/types'
+import { getUnit, convert } from '@/lib/units'
 
 export interface MedicineDosage {
   productId: string
@@ -16,7 +15,23 @@ export interface MedicineDosage {
   notes: string
 }
 
-export type MedicineEntry = CartItem & MedicineDosage
+export interface MedicineEntry {
+  id: string
+  productId: string
+  name: string
+  packagingName: string
+  packagingQuantity: number
+  baseUnitQuantity: number
+  baseQuantity: number
+  unitPrice: number
+  total: number
+  category: string
+  dosage: string
+  frequency: string
+  duration: string
+  notes: string
+  sellingUnitId?: number | null
+}
 
 interface AddMedicineDialogProps {
   open: boolean
@@ -24,38 +39,82 @@ interface AddMedicineDialogProps {
   onAdd: (entry: MedicineEntry) => void
   selectedIds: string[]
   editEntry?: MedicineEntry | null
+  products?: any[]
 }
 
-interface SelectedProduct extends MedicineDosage {
-  product: Product
-  packagingName: string
-  packagingQuantity: number
-  baseUnitQuantity: number
-  baseQuantity: number
-  unitPrice: number
-  total: number
+// Backend selling units structure
+interface BackendSellingUnit {
+  id: number
+  name: string
+  quantity: number
+  sale_price: number
+  is_default: boolean
+  unit_id: string
+  product_unit_id?: number | null
+  packaging_id?: number | null
 }
 
-export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, editEntry }: AddMedicineDialogProps) {
+// ── Custom measurement options using unit conversion ──
+function getCustomMeasurementOptions(baseUnitId: string): { id: string; label: string; factor: number }[] {
+  const unit = getUnit(baseUnitId)
+  if (!unit) return []
+  const opts: { id: string; label: string; factor: number }[] = []
+  if (unit.measurementType === 'weight') {
+    if (convert(1, 'g', baseUnitId) !== null) {
+      opts.push({ id: '__custom_gram', label: 'Gram (g)', factor: convert(1, 'g', baseUnitId) ?? 1 })
+    }
+    if (convert(1, 'kg', baseUnitId) !== null) {
+      opts.push({ id: '__custom_kg', label: 'Kilogram (kg)', factor: convert(1, 'kg', baseUnitId) ?? 1000 })
+    }
+  }
+  if (unit.measurementType === 'volume') {
+    if (convert(1, 'ml', baseUnitId) !== null) {
+      opts.push({ id: '__custom_ml', label: 'Millilitre (ml)', factor: convert(1, 'ml', baseUnitId) ?? 1 })
+    }
+    if (convert(1, 'liter', baseUnitId) !== null) {
+      opts.push({ id: '__custom_liter', label: 'Litre (L)', factor: convert(1, 'liter', baseUnitId) ?? 1000 })
+    }
+  }
+  if (unit.measurementType === 'length') {
+    if (convert(1, 'cm', baseUnitId) !== null) {
+      opts.push({ id: '__custom_cm', label: 'Per cm', factor: convert(1, 'cm', baseUnitId) ?? 0.01 })
+    }
+    if (convert(1, 'meter', baseUnitId) !== null) {
+      opts.push({ id: '__custom_meter', label: 'Per Meter', factor: convert(1, 'meter', baseUnitId) ?? 100 })
+    }
+  }
+  return opts
+}
+
+export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, editEntry, products: serverProducts }: AddMedicineDialogProps) {
+  const allProducts = serverProducts || []
+
   const [search, setSearch] = useState('')
-  const [working, setWorking] = useState<SelectedProduct | null>(null)
+  const [working, setWorking] = useState<any>(null)
+  const [qtyInput, setQtyInput] = useState('1')
 
-  const getSmallestPkg = (product: Product) => product.packaging.length
-    ? product.packaging.reduce((a, b) => a.quantity < b.quantity ? a : b)
-    : null
+  // Get smallest selling unit (lowest quantity = base unit)
+  const getSmallestUnit = (product: any) => {
+    const sus = product.selling_units || product.sellingUnits || []
+    return sus.length > 0
+      ? sus.reduce((a: any, b: any) => (a.quantity || 1) < (b.quantity || 1) ? a : b)
+      : null
+  }
 
-  // When editEntry changes, pre-fill the config view
+  // When editEntry changes, pre-fill
   useEffect(() => {
     if (open && editEntry) {
-      const product = mockProducts.find((p) => p.id === editEntry.productId)
+      const product = serverProducts.find((p: any) => String(p.id) === String(editEntry.productId))
       if (product) {
-        const pkg = product.packaging.find((p) => p.name === editEntry.packagingName) || getSmallestPkg(product)
-        if (pkg) {
+        const sus = product.selling_units || product.sellingUnits || []
+        const su = sus.find((u: any) => u.name === editEntry.packagingName) || getSmallestUnit(product)
+        if (su) {
           setWorking({
             product,
-            packagingName: editEntry.packagingName,
+            sellingUnit: su,
+            packagingName: su.name,
             packagingQuantity: editEntry.packagingQuantity,
-            baseUnitQuantity: pkg.quantity,
+            baseUnitQuantity: su.quantity || 1,
             baseQuantity: editEntry.baseQuantity,
             unitPrice: editEntry.unitPrice,
             total: editEntry.total,
@@ -63,68 +122,62 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
             frequency: editEntry.frequency,
             duration: editEntry.duration,
             notes: editEntry.notes,
-            productId: editEntry.productId,
           })
         }
       }
     }
   }, [open, editEntry])
 
-  const filtered = useMemo(
-    () => mockProducts.filter(
-      (p) => search
-        ? (p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase()))
-        : true
-    ),
-    [search]
-  )
+  const filtered = useMemo(() => {
+    if (!search.trim()) return serverProducts
+    const q = search.toLowerCase()
+    return serverProducts.filter((p: any) =>
+      p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
+    )
+  }, [search, serverProducts])
 
-  const getStockAfter = (productId: string, consumeQty: number): { current: number; remaining: number } | null => {
-    const prod = getProductById(productId)
-    if (!prod) return null
-    return { current: prod.stockQuantity, remaining: Math.max(0, prod.stockQuantity - consumeQty) }
-  }
-
-  const handleSelectProduct = (product: Product) => {
-    const pkg = getSmallestPkg(product)
-    if (!pkg) return
+  const handleSelectProduct = (product: any) => {
+    const su = getSmallestUnit(product)
+    if (!su) return
     setWorking({
       product,
-      packagingName: pkg.name,
+      sellingUnit: su,
+      packagingName: su.name,
       packagingQuantity: 1,
-      baseUnitQuantity: pkg.quantity,
-      baseQuantity: pkg.quantity,
-      unitPrice: pkg.salePrice,
-      total: pkg.salePrice,
+      baseUnitQuantity: su.quantity || 1,
+      baseQuantity: su.quantity || 1,
+      unitPrice: su.sale_price || 0,
+      total: su.sale_price || 0,
       dosage: '1',
       frequency: 'Once daily',
       duration: '7 days',
       notes: '',
-      productId: product.id,
     })
   }
 
-  const handleChangePkg = (product: Product, pkgName: string) => {
-    const pkg = product.packaging.find((p) => p.name === pkgName)
-    if (!pkg) return
-    setWorking((prev) => {
+  const handleChangeUnit = (product: any, su: any) => {
+    setWorking((prev: any) => {
       if (!prev) return null
       return {
         ...prev,
-        packagingName: pkg.name,
+        sellingUnit: su,
+        packagingName: su.name,
         packagingQuantity: 1,
-        baseUnitQuantity: pkg.quantity,
-        baseQuantity: pkg.quantity,
-        unitPrice: pkg.salePrice,
-        total: pkg.salePrice,
+        baseUnitQuantity: su.quantity || 1,
+        baseQuantity: su.quantity || 1,
+        unitPrice: su.sale_price || 0,
+        total: su.sale_price || 0,
       }
     })
   }
 
   const handleQtyChange = (delta: number) => {
-    setWorking((prev) => {
+    setWorking((prev: any) => {
       if (!prev) return null
-      const newQty = Math.max(1, prev.packagingQuantity + delta)
+      // Smart increment: 0.1 for measurement products, 1 for count products
+      const increment = prev.baseUnitQuantity < 1 ? 0.1 : 1
+      const current = prev.packagingQuantity || 1
+      const newQty = Math.max(0.001, Math.round((current + delta * increment) * 1000) / 1000)
       return {
         ...prev,
         packagingQuantity: newQty,
@@ -137,8 +190,8 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
   const handleAdd = () => {
     if (!working) return
     onAdd({
-      id: editEntry ? editEntry.id : `med-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      productId: working.productId,
+      id: editEntry ? editEntry.id : `med-${Date.now()}`,
+      productId: String(working.product.id),
       name: working.product.name,
       packagingName: working.packagingName,
       packagingQuantity: working.packagingQuantity,
@@ -146,17 +199,16 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
       baseQuantity: working.baseQuantity,
       unitPrice: working.unitPrice,
       total: working.total,
-      category: working.product.category,
+      category: working.product.category?.name || working.product.category || '',
       dosage: working.dosage,
       frequency: working.frequency,
       duration: working.duration,
       notes: working.notes,
+      sellingUnitId: working.sellingUnit?.id || null,
     })
     if (editEntry) {
-      // Edit mode — close dialog after save
       handleClose()
     } else {
-      // Add mode — reset for another entry
       setWorking(null)
       setSearch('')
     }
@@ -179,14 +231,9 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
         <div className="px-5 pb-3 shrink-0">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search products..."
-              value={search}
+            <input type="text" placeholder="Search products..." value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-              autoFocus
-            />
+              className="w-full h-10 pl-9 pr-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" autoFocus />
           </div>
         </div>
 
@@ -196,108 +243,178 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="text-sm font-semibold">{working.product.name}</h4>
-                <p className="text-xs text-muted-foreground">{working.product.sku} · {working.product.category}</p>
+                <p className="text-xs text-muted-foreground">{working.product.sku} · {working.product.category?.name || working.product.category}</p>
               </div>
               <button onClick={() => setWorking(null)} className="text-muted-foreground hover:text-foreground">
                 <X className="size-4" />
               </button>
             </div>
 
-            {/* Packaging selector */}
-            {working.product.packaging.length > 1 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Packaging</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {working.product.packaging.map((pkg) => (
-                    <button
-                      key={pkg.name}
-                      onClick={() => handleChangePkg(working.product, pkg.name)}
-                      className={cn(
-                        'px-3 py-2 rounded-lg border text-xs font-medium transition-all',
-                        working.packagingName === pkg.name
-                          ? 'border-primary bg-primary/5 text-foreground ring-1 ring-primary/20'
-                          : 'border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground/30'
-                      )}
-                    >
-                      {pkg.name} · {formatCurrency(pkg.salePrice)}/each
-                    </button>
+            {/* Selling Units selector — dropdown like SaleBill, with custom measurement options */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground">Selling Unit</label>
+              {(() => {
+                // Compute the correct select value: for regular selling units it's the name,
+                // for custom measurement options it's the option ID
+                const sus = working.product.selling_units || working.product.sellingUnits || []
+                const isRegular = sus.some((u: any) => u.name === working.packagingName)
+                const customOpts = getCustomMeasurementOptions(working.product.base_unit_id)
+                const isCustom = customOpts.some((o: any) => o.label === working.packagingName)
+                const selectValue = isCustom
+                  ? customOpts.find((o: any) => o.label === working.packagingName)?.id || working.packagingName
+                  : isRegular ? working.packagingName : working.packagingName
+                return (
+              <select
+                value={selectValue}
+                onChange={(e) => {
+                  const val = e.target.value
+                  const product = working.product
+                  const sus = product.selling_units || product.sellingUnits || []
+                  // Check if it's a regular selling unit
+                  const su = sus.find((u: any) => u.name === val)
+                  if (su) {
+                    handleChangeUnit(product, su)
+                    return
+                  }
+                  // Custom measurement option
+                  if (val.startsWith('__custom_')) {
+                    const customOpts = getCustomMeasurementOptions(product.base_unit_id)
+                    const opt = customOpts.find((o: any) => o.id === val)
+                    if (!opt) return
+                    const pricePerBase = working.unitPrice > 0
+                      ? working.unitPrice / working.baseUnitQuantity
+                      : 0
+                    const newUnitPrice = Math.round(pricePerBase * opt.factor * 100) / 100
+                    setWorking((prev: any) => {
+                      if (!prev) return null
+                      return {
+                        ...prev,
+                        packagingName: opt.label,
+                        packagingQuantity: 1,
+                        baseUnitQuantity: opt.factor,
+                        baseQuantity: opt.factor,
+                        unitPrice: newUnitPrice,
+                        total: newUnitPrice,
+                        sellingUnit: null,
+                      }
+                    })
+                  }
+                }}
+                className="w-full h-9 px-2.5 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 appearance-none cursor-pointer"
+              >
+                <optgroup label="Selling Units">
+                  {(working.product.selling_units || working.product.sellingUnits || []).map((su: BackendSellingUnit) => (
+                    <option key={su.id} value={su.name}>
+                      {su.name} — {formatCurrency(su.sale_price || 0)}/each
+                    </option>
                   ))}
-                </div>
-              </div>
-            )}
+                </optgroup>
+                {(() => {
+                  const customOpts = getCustomMeasurementOptions(working.product.base_unit_id)
+                  return customOpts.length > 0 ? (
+                    <optgroup label="Custom amount">
+                      {customOpts.map((opt: { id: string; label: string }) => (
+                        <option key={opt.id} value={opt.id}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null
+                })()}
+              </select>
+            )
+          })()}
+            </div>
 
-            {/* Quantity */}
+            {/* Quantity — custom typed input + increment/decrement */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">Quantity</label>
               <div className="flex items-center gap-3">
-                <button
-                  onClick={() => handleQtyChange(-1)}
-                  disabled={working.packagingQuantity <= 1}
-                  className="flex items-center justify-center size-9 rounded-lg bg-muted hover:bg-muted/80 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
+                <button onClick={() => handleQtyChange(-1)} disabled={working.packagingQuantity <= 0.001}
+                  className="flex items-center justify-center size-9 rounded-lg bg-muted hover:bg-muted/80 disabled:opacity-30 disabled:cursor-not-allowed">
                   <Minus className="size-4" />
                 </button>
-                <span className="text-lg font-bold w-10 text-center">{working.packagingQuantity}</span>
-                <button
-                  onClick={() => handleQtyChange(1)}
-                  className="flex items-center justify-center size-9 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
-                >
+                <input type="number" value={qtyInput}
+                  onChange={(e) => {
+                    const raw = e.target.value
+                    // Allow clearing the field entirely
+                    if (raw === '') {
+                      setQtyInput('')
+                      return
+                    }
+                    const v = parseFloat(raw)
+                    if (!isNaN(v) && v > 0) {
+                      setQtyInput(raw)
+                      setWorking((prev: any) => {
+                        if (!prev) return null
+                        return {
+                          ...prev,
+                          packagingQuantity: v,
+                          baseQuantity: v * prev.baseUnitQuantity,
+                          total: v * prev.unitPrice,
+                        }
+                      })
+                    }
+                  }}
+                  onBlur={() => {
+                    // If empty or invalid on blur, reset to 1
+                    if (qtyInput === '' || isNaN(parseFloat(qtyInput)) || parseFloat(qtyInput) <= 0) {
+                      setQtyInput('1')
+                      setWorking((prev: any) => {
+                        if (!prev) return null
+                        return { ...prev, packagingQuantity: 1, baseQuantity: 1 * prev.baseUnitQuantity, total: 1 * prev.unitPrice }
+                      })
+                    }
+                  }}
+                  step={working.baseUnitQuantity < 1 ? '0.001' : '1'}
+                  min="0.001"
+                  className="w-20 h-9 px-2 rounded-lg border border-input bg-background text-sm font-bold text-center outline-none focus:border-ring focus:ring-1 focus:ring-ring/30 tabular-nums"
+                />
+                <button onClick={() => handleQtyChange(1)}
+                  className="flex items-center justify-center size-9 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90">
                   <Plus className="size-4" />
                 </button>
                 <span className="text-xs text-muted-foreground">
                   × {working.packagingName} = {working.baseQuantity} base units
                 </span>
               </div>
+              <p className="text-[10px] text-muted-foreground/70">
+                ({formatCurrency(working.unitPrice || 0)} × {qtyInput || 0} = {formatCurrency(working.total || 0)})
+                · {working.baseQuantity > 0 ? working.baseQuantity : '0'} {getUnit(working.product.base_unit_id)?.name || working.product.base_unit_id} deducted from stock
+              </p>
             </div>
 
-            {/* Stock indicator */}
-            {getStockAfter(working.productId, working.baseQuantity) && (
-              <StockIndicator
-                stock={getStockAfter(working.productId, working.baseQuantity)!}
-                threshold={working.product.lowStockThreshold}
-              />
-            )}
-
-            {/* Divider */}
             <div className="border-t border-border pt-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Prescription Info</p>
             </div>
 
-            {/* Dosage */}
+            {/* Dosage, Frequency, Duration */}
             <div className="grid grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <label className="flex items-center gap-1 text-xs font-medium text-foreground"><Pill className="size-3" /> Dosage</label>
-                <input
-                  type="text" value={working.dosage} placeholder="1 tablet"
+                <input type="text" value={working.dosage} placeholder="1 tablet"
                   onChange={(e) => setWorking({ ...working, dosage: e.target.value })}
-                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-                />
+                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
               </div>
               <div className="space-y-1.5">
                 <label className="flex items-center gap-1 text-xs font-medium text-foreground"><Clock className="size-3" /> Frequency</label>
-                <input
-                  type="text" value={working.frequency} placeholder="Twice daily"
+                <input type="text" value={working.frequency} placeholder="Twice daily"
                   onChange={(e) => setWorking({ ...working, frequency: e.target.value })}
-                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-                />
+                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
               </div>
               <div className="space-y-1.5">
                 <label className="flex items-center gap-1 text-xs font-medium text-foreground"><CalendarDays className="size-3" /> Duration</label>
-                <input
-                  type="text" value={working.duration} placeholder="7 days"
+                <input type="text" value={working.duration} placeholder="7 days"
                   onChange={(e) => setWorking({ ...working, duration: e.target.value })}
-                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-                />
+                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
               </div>
             </div>
 
             <div className="space-y-1.5">
               <label className="flex items-center gap-1 text-xs font-medium text-foreground"><FileText className="size-3" /> Instructions</label>
-              <input
-                type="text" value={working.notes} placeholder="e.g. Take with food"
+              <input type="text" value={working.notes} placeholder="e.g. Take with food"
                 onChange={(e) => setWorking({ ...working, notes: e.target.value })}
-                className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-              />
+                className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" />
             </div>
 
             {/* Total */}
@@ -308,9 +425,7 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
 
             {/* Actions */}
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setWorking(null)} className="flex-1 h-10">
-                Back to List
-              </Button>
+              <Button variant="outline" onClick={() => setWorking(null)} className="flex-1 h-10">Back to List</Button>
               <Button onClick={handleAdd} className="flex-1 h-10 gap-1.5 shadow-sm">
                 <Plus className="size-4" /> Add to Prescription
               </Button>
@@ -325,46 +440,37 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
                 No products found.
               </div>
             )}
-            {filtered.map((product) => {
-              const pkg = getSmallestPkg(product)
-              const alreadySelected = selectedIds.includes(product.id)
-              const stock = getStockAfter(product.id, 0)
+            {filtered.map((product: any) => {
+              const sus = product.selling_units || product.sellingUnits || []
+              const alreadySelected = selectedIds.includes(String(product.id))
               return (
-                <button
-                  key={product.id}
-                  onClick={() => !alreadySelected && handleSelectProduct(product)}
+                <button key={product.id} onClick={() => !alreadySelected && handleSelectProduct(product)}
                   disabled={alreadySelected}
                   className={cn(
-                    'w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-left',
-                    alreadySelected
-                      ? 'bg-primary/5 opacity-60 cursor-not-allowed'
-                      : 'hover:bg-muted/50 active:bg-muted/80'
-                  )}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">{product.name}</span>
-                      {alreadySelected && <Check className="size-3.5 text-primary shrink-0" />}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <span>{pkg ? formatCurrency(pkg.salePrice) : '—'} per {pkg?.name || product.baseUnit}</span>
-                      {stock && (
-                        <>
-                          <span>·</span>
-                          <span className={cn(
-                            stock.remaining <= 0 ? 'text-red-500' :
-                            stock.remaining < product.lowStockThreshold ? 'text-amber-500' :
-                            'text-emerald-500'
-                          )}>
-                            {stock.remaining} in stock
+                    'w-full text-left px-3 py-2.5 rounded-lg transition-colors',
+                    alreadySelected ? 'bg-primary/5 opacity-60 cursor-not-allowed' : 'hover:bg-muted/50 active:bg-muted/80'
+                  )}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">{product.name}</span>
+                        {alreadySelected && <span className="size-3.5 text-primary shrink-0">✓</span>}
+                      </div>
+                      {/* Selling units row */}
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {sus.length > 0 ? sus.map((u: BackendSellingUnit) => (
+                          <span key={u.id} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted/60 text-muted-foreground">
+                            {u.name} @ {formatCurrency(u.sale_price || 0)}
                           </span>
-                        </>
-                      )}
+                        )) : (
+                          <span className="text-[10px] text-muted-foreground/60">No selling units</span>
+                        )}
+                      </div>
                     </div>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal shrink-0 ml-2">
+                      {product.category?.name || product.category || ''}
+                    </Badge>
                   </div>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-normal shrink-0 ml-2">
-                    {product.category}
-                  </Badge>
                 </button>
               )
             })}
@@ -372,21 +478,5 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
         )}
       </DialogContent>
     </Dialog>
-  )
-}
-
-function StockIndicator({ stock, threshold }: { stock: { current: number; remaining: number }; threshold: number }) {
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <span className="text-muted-foreground">Available stock:</span>
-      <span className={cn(
-        'px-2 py-0.5 rounded-full font-medium',
-        stock.remaining <= 0 ? 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400' :
-        stock.remaining < threshold ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400' :
-        'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400'
-      )}>
-        {stock.remaining} left
-      </span>
-    </div>
   )
 }

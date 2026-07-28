@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ClinicController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InventoryController;
@@ -111,9 +112,21 @@ Route::prefix('settings')->group(function () {
     Route::get('/about', fn () => Inertia::render('settings/AboutSystem'))->name('settings.about');
 });
 
-Route::get('/clinic', fn () => Inertia::render('clinic/ClinicPage'))->name('clinic.index');
-Route::get('/clinic/patient/{id}', fn (string $id) => Inertia::render('clinic/PatientProfile', ['id' => $id]))->name('clinic.patient');
-Route::get('/clinic/patient/{id}/visit', fn (string $id) => Inertia::render('clinic/NewVisit', ['id' => $id]))->name('clinic.visit');
+Route::prefix('clinic')->group(function () {
+    Route::get('/', [ClinicController::class, 'index'])->name('clinic.index');
+    Route::get('/patient/{id}', [ClinicController::class, 'show'])->name('clinic.patient');
+    Route::get('/patient/{id}/visit', [ClinicController::class, 'createVisit'])->name('clinic.visit');
+    Route::post('/visits', [ClinicController::class, 'storeVisit'])->name('clinic.visits.store');
+    Route::get('/visit/{id}', [ClinicController::class, 'showVisit'])->name('clinic.visit.show');
+});
+
+// Prescription Image API
+Route::middleware('auth')->prefix('api')->group(function () {
+    Route::post('/prescriptions/{prescription}/images', [\App\Http\Controllers\PrescriptionImageController::class, 'store']);
+    Route::get('/prescriptions/{prescription}/images', [\App\Http\Controllers\PrescriptionImageController::class, 'index']);
+    Route::delete('/prescription-images/{id}', [\App\Http\Controllers\PrescriptionImageController::class, 'destroy']);
+    Route::get('/prescription-images/{id}/download', [\App\Http\Controllers\PrescriptionImageController::class, 'download']);
+});
 
 }); // ← end auth middleware
 

@@ -92,8 +92,19 @@ class SaleService
             foreach ($data->items as $itemData) {
                 $product = Product::lockForUpdate()->findOrFail($itemData->productId);
 
-                // Recalculate base quantity server-side (never trust client conversions)
-                $baseQty = $itemData->packagingQuantity * $itemData->baseUnitQuantity;
+                // Server-side selling unit re-validation:
+                // When a selling_unit_id is provided, look up the authoritative
+                // conversion factor from the selling_units table instead of
+                // trusting the client-provided baseUnitQuantity.
+                $authoritativeBaseUnitQty = $itemData->baseUnitQuantity;
+                if ($itemData->sellingUnitId) {
+                    $sellingUnit = \App\Models\SellingUnit::lockForUpdate()->find($itemData->sellingUnitId);
+                    if ($sellingUnit && $sellingUnit->product_id === $product->id) {
+                        $authoritativeBaseUnitQty = (float) $sellingUnit->quantity;
+                    }
+                }
+
+                $baseQty = $itemData->packagingQuantity * $authoritativeBaseUnitQty;
 
                 // Calculate COGS using best-available-cost fallback
                 $costPrice = $product->last_purchase_cost ?? $product->default_purchase_cost ?? 0;
@@ -105,13 +116,14 @@ class SaleService
                     'product_name' => $itemData->productName ?: $product->name,
                     'packaging_name' => $itemData->packagingName ?? 'Unit',
                     'packaging_quantity' => $itemData->packagingQuantity,
-                    'base_unit_quantity' => $itemData->baseUnitQuantity,
+                    'base_unit_quantity' => $authoritativeBaseUnitQty,
                     'base_quantity' => $baseQty,
                     'unit_price' => $itemData->unitPrice,
                     'cost_price' => $cogs,
                     'total' => $itemData->total,
                     'discount_pct' => $itemData->discountPct,
                     'category' => $itemData->category ?: ($product->category?->name ?? ''),
+                    'selling_unit_id' => $itemData->sellingUnitId,
                 ]);
 
                 $this->inventoryService->recordSale(

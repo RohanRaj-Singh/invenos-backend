@@ -36,4 +36,8 @@ class Contact extends Model
     public function sales() { return $this->hasMany(Sale::class, 'customer_id'); }
     public function purchases() { return $this->hasMany(PurchaseBill::class, 'supplier_id'); }
     public function financialTransactions() { return $this->hasMany(FinancialTransaction::class); }
+
+    // ── Clinic (patient role) ──
+    public function consultations() { return $this->hasMany(Consultation::class, 'patient_id'); }
+    public function prescriptions() { return $this->hasMany(Prescription::class, 'patient_id'); }
 }
