@@ -649,10 +649,10 @@ export default function SaleBillPage() {
       return
     }
 
-    submitSale(false)
-  }, [cart, posProducts, submitSale])
+    doSubmitSale(false)
+  }, [cart, posProducts, doSubmitSale])
 
-  const submitSale = useCallback((bypassStockCheck: boolean) => {
+  function doSubmitSale(bypassStockCheck: boolean): void {
     const today = new Date().toISOString().split('T')[0]
     const paid = parseFloat(amountPaid) || grandTotal
     const paymentStatus = paid >= grandTotal ? 'paid' : paid > 0 ? 'partial' : 'unpaid'
@@ -698,17 +698,7 @@ export default function SaleBillPage() {
         toast.error(String(first || 'Sale failed'))
       },
     })
-  }, [
-    cart,
-    computedCart,
-    subtotal,
-    discount,
-    grandTotal,
-    customer,
-    paymentMethod,
-    amountPaid,
-    resetSale,
-  ])
+  }
 
   const handleNewSale = useCallback(() => {
     setShowReceipt(false)
@@ -1169,7 +1159,7 @@ export default function SaleBillPage() {
             <p className="text-xs text-muted-foreground">Stock will go negative for these items. Do you want to proceed?</p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setShowLowStockWarning(false)} className="flex-1">Cancel</Button>
-              <Button onClick={() => { setShowLowStockWarning(false); submitSale(true) }} className="flex-1 gap-1.5">
+              <Button onClick={() => { setShowLowStockWarning(false); doSubmitSale(true) }} className="flex-1 gap-1.5">
                 Proceed with Sale
               </Button>
             </div>

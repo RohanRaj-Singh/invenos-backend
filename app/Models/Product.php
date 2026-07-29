@@ -27,6 +27,7 @@ class Product extends Model
         'track_inventory' => 'boolean',
         'default_purchase_cost' => 'float',
         'last_purchase_cost' => 'float',
+        'allow_negative_stock' => 'boolean',
     ];
 
     public function category() { return $this->belongsTo(Category::class); }

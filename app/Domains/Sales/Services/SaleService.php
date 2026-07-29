@@ -137,7 +137,7 @@ class SaleService
                     notes: "Sale to " . ($customer?->name ?? 'Walk-in Customer'),
                     user: $data->createdBy,
                     referenceId: $sale->id,
-                    bypassStockCheck: $data->bypassStockCheck ?? false,
+                    bypassStockCheck: $bypassStockCheck,
                 );
             }
 

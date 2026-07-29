@@ -54,7 +54,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   const [sku, setSku] = useState(product?.sku || generatedSku || '')
   const [openingStock, setOpeningStock] = useState(isEditing ? String(product?.stock_quantity ?? '') : '')
   const [lowStockThreshold, setLowStockThreshold] = useState(String(product?.low_stock_threshold ?? '100'))
-  const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? true)
+  const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? false)
   const [description, setDescription] = useState('')
 
   // ── Unit relationships ──
