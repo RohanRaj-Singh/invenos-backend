@@ -35,6 +35,17 @@ class Product extends Model
     public function inventoryTransactions() { return $this->hasMany(InventoryTransaction::class); }
 
     /**
+     * Resolved display name for the base unit.
+     * E.g. 'kg' → 'Kilogram (kg)', 'capsule' → 'Capsule'
+     * Every frontend page should use this instead of resolving in JS.
+     */
+    public function getBaseUnitNameAttribute(): string
+    {
+        return app(\App\Domains\Products\Services\ProductUnitService::class)
+            ->resolveDisplayUnit($this->base_unit_id);
+    }
+
+    /**
      * Get derived selling units only (those generated from packaging).
      */
     public function derivedSellingUnits()

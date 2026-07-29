@@ -15,6 +15,7 @@ class ProductService
 {
     public function __construct(
         private readonly PackagingDerivationEngine $derivationEngine,
+        private readonly ProductUnitService $productUnitService,
     ) {}
 
     public function search(string $query = '', ?int $categoryId = null, int $perPage = 25): LengthAwarePaginator
@@ -97,7 +98,7 @@ class ProductService
 
             // 6. Ensure at least one default selling unit exists
             if ($product->sellingUnits()->count() === 0) {
-                $unitName = $this->resolveUnitName($data->baseUnitId);
+                $unitName = $this->productUnitService->resolveDisplayUnit($data->baseUnitId);
                 $product->sellingUnits()->create([
                     'name' => $unitName,
                     'unit_id' => $data->baseUnitId,
@@ -234,23 +235,4 @@ class ProductService
         }
     }
 
-    /**
-     * Resolve a human-readable unit name from a unit ID.
-     */
-    public function resolveUnitName(?string $unitId): string
-    {
-        $units = [
-            'piece' => 'Piece', 'capsule' => 'Capsule', 'tablet' => 'Tablet',
-            'bottle' => 'Bottle', 'box' => 'Box', 'carton' => 'Carton',
-            'strip' => 'Strip', 'sachet' => 'Sachet',
-            'kilogram' => 'Kilogram (kg)', 'kg' => 'Kilogram (kg)',
-            'gram' => 'Gram (g)', 'g' => 'Gram (g)',
-            'milligram' => 'Milligram (mg)', 'mg' => 'Milligram (mg)',
-            'litre' => 'Litre (L)', 'liter' => 'Litre (L)',
-            'millilitre' => 'Millilitre (ml)', 'ml' => 'Millilitre (ml)',
-            'meter' => 'Meter', 'cm' => 'Centimetre (cm)',
-        ];
-        $key = strtolower((string) $unitId);
-        return $units[$key] ?? $unitId ?? 'Unit';
-    }
 }

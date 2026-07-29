@@ -18,7 +18,7 @@ import CompletionBadge, { computeCompletionStatus } from './components/Completio
 import InventoryTimeline from './components/InventoryTimeline'
 import AdjustStockDialog from './components/AdjustStockDialog'
 import { formatCurrency } from '@/lib/format'
-import { getUnit } from '@/lib/units'
+import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
 
 interface BackendProduct {
@@ -50,7 +50,7 @@ export default function ProductDetailsPage() {
   const [showAdjust, setShowAdjust] = useState(false)
 
   const costPrice = product ? (product.last_purchase_cost ?? product.default_purchase_cost ?? 0) : 0
-  const unitName = product?.base_unit_id ? (getUnit(product.base_unit_id)?.name || product.base_unit_id) : 'units'
+  const unitName = (product as any).base_unit_name || product?.base_unit_id || 'Unit'
   const sellingPrice = product && product.selling_units?.length > 0
     ? Math.min(...product.selling_units.map((u: any) => u.sale_price || 0))
     : 0
@@ -61,7 +61,7 @@ export default function ProductDetailsPage() {
     productId: m.product_id,
     type: m.type,
     quantity: m.quantity,
-    unit: m.unit || '',
+    unit: m.unit || unitName,
     packagingName: m.packaging_name,
     packagingQuantity: m.packaging_quantity,
     date: m.date,
@@ -192,7 +192,7 @@ export default function ProductDetailsPage() {
                   product.stock_quantity === 0 ? 'text-red-500' :
                   product.status === 'low-stock' ? 'text-amber-500' : 'text-emerald-600'
                 )}>
-                  {product.stock_quantity} {unitName}
+                  {formatStock(product.stock_quantity, unitName)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">

@@ -173,6 +173,7 @@ export default function SaleBillPage() {
       salePrice: u.sale_price || 0,
       isDefault: u.is_default || false,
       unitId: String(u.unit_id || ''),
+      purchaseCost: u.purchase_cost ?? null,
     })),
     stockQuantity: p.stock_quantity || 0,
     lowStockThreshold: p.low_stock_threshold || 10,

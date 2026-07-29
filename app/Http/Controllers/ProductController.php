@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Domains\Products\DTOs\CreateProductData;
 use App\Domains\Products\Services\PackagingDerivationEngine;
 use App\Domains\Products\Services\ProductService;
+use App\Domains\Products\Services\ProductUnitService;
 use App\Http\Requests\Products\CreateProductRequest;
 use App\Http\Requests\Products\UpdateProductRequest;
 use Illuminate\Http\RedirectResponse;
@@ -17,6 +18,7 @@ class ProductController extends Controller
     public function __construct(
         private readonly ProductService $productService,
         private readonly PackagingDerivationEngine $derivationEngine,
+        private readonly ProductUnitService $productUnitService,
     ) {}
 
     public function index(): Response
@@ -225,6 +227,21 @@ class ProductController extends Controller
         return response()->json([
             'success' => true,
             'data' => $units,
+        ]);
+    }
+
+    /**
+     * Get custom measurement options for a base unit.
+     * This is the server-authoritative source — frontend never computes this.
+     */
+    public function measurementOptions(): JsonResponse
+    {
+        $baseUnitId = request('base_unit_id', 'piece');
+        $options = $this->productUnitService->getMeasurementOptions($baseUnitId);
+
+        return response()->json([
+            'success' => true,
+            'data' => $options,
         ]);
     }
 }

@@ -84,7 +84,7 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                       product.stock_quantity === 0 && 'text-red-500',
                       product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
                     )}>
-                      {product.stock_quantity} {product.base_unit_id || 'units'}
+                      {product.stock_quantity} {product.base_unit_name || product.base_unit_id || 'Unit'}
                     </div>
                   </div>
                   <div className="rounded-lg bg-muted/50 px-2.5 py-2">

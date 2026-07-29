@@ -2,6 +2,7 @@
 
 namespace App\Domains\Purchasing\Services;
 
+use App\Domains\Products\Services\ProductUnitService;
 use App\Domains\Purchasing\DTOs\CreatePurchaseData;
 use App\Models\Contact;
 use App\Domains\Inventory\Services\InventoryService;
@@ -16,6 +17,7 @@ class PurchaseService
 {
     public function __construct(
         private readonly InventoryService $inventoryService,
+        private readonly ProductUnitService $productUnitService,
     ) {}
 
     public function search(string $query = '', ?int $supplierId = null, ?string $status = null, int $perPage = 25): LengthAwarePaginator
@@ -87,7 +89,7 @@ class PurchaseService
                 $product = Product::lockForUpdate()->findOrFail($itemData->productId);
                 $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
 
-                $unitName = $this->resolveUnitName($product->base_unit_id);
+                $unitName = $this->productUnitService->resolveDisplayUnit($product->base_unit_id);
                 PurchaseBillItem::create([
                     'purchase_bill_id' => $bill->id,
                     'product_id' => $product->id,
@@ -177,19 +179,6 @@ class PurchaseService
         $bill = PurchaseBill::withTrashed()->findOrFail($id);
         $bill->restore();
         return $bill;
-    }
-
-    private function resolveUnitName(?string $unitId): string
-    {
-        $units = [
-            'piece' => 'Piece', 'capsule' => 'Capsule', 'tablet' => 'Tablet',
-            'bottle' => 'Bottle', 'box' => 'Box', 'carton' => 'Carton',
-            'strip' => 'Strip', 'sachet' => 'Sachet',
-            'kilogram' => 'Kilogram', 'gram' => 'Gram', 'milligram' => 'Milligram',
-            'litre' => 'Litre', 'millilitre' => 'Millilitre', 'meter' => 'Meter',
-        ];
-        $key = strtolower((string) $unitId);
-        return $units[$key] ?? $unitId ?? 'Unit';
     }
 
     private function recalculateStatus(Product $product): void

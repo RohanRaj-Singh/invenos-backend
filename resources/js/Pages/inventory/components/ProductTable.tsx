@@ -2,6 +2,7 @@ import { router } from '@inertiajs/react'
 import { ArrowRight, Package } from 'lucide-react'
 import StockBadge from './StockBadge'
 import { formatCurrency } from '@/lib/format'
+import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
 
 interface SellingUnit {
@@ -119,7 +120,7 @@ export default function ProductTable({ products }: ProductTableProps) {
                       >
                         {product.stock_quantity.toLocaleString()}
                       </span>
-                      <span className="text-[10px] text-muted-foreground">{product.base_unit_id || 'units'}</span>
+                      <span className="text-[10px] text-muted-foreground">{product.base_unit_name || product.base_unit_id || 'Unit'}</span>
                     </div>
                   </td>
                   <td

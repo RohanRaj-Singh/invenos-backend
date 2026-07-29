@@ -29,6 +29,7 @@ Route::prefix('inventory')->group(function () {
     Route::get('/generate-sku', [ProductController::class, 'generateSku'])->name('inventory.generate-sku');
     Route::post('/preview-packaging', [ProductController::class, 'previewPackaging'])->name('inventory.preview-packaging');
     Route::get('/product-units', [ProductController::class, 'productUnits'])->name('inventory.product-units');
+    Route::get('/measurement-options', [ProductController::class, 'measurementOptions'])->name('inventory.measurement-options');
     Route::post('/adjust', [InventoryController::class, 'adjust'])->name('inventory.adjust');
 });
 

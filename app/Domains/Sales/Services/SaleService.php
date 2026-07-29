@@ -2,6 +2,7 @@
 
 namespace App\Domains\Sales\Services;
 
+use App\Domains\Products\Services\ProductUnitService;
 use App\Domains\Sales\DTOs\CreateSaleData;
 use App\Models\Contact;
 use App\Domains\Inventory\Services\InventoryService;
@@ -15,6 +16,7 @@ class SaleService
 {
     public function __construct(
         private readonly InventoryService $inventoryService,
+        private readonly ProductUnitService $productUnitService,
     ) {}
 
     public function search(string $query = '', ?int $customerId = null, ?string $paymentStatus = null, int $perPage = 25): LengthAwarePaginator
@@ -114,7 +116,7 @@ class SaleService
                     'sale_id' => $sale->id,
                     'product_id' => $product->id,
                     'product_name' => $itemData->productName ?: $product->name,
-                    'packaging_name' => $itemData->packagingName ?? 'Unit',
+                    'packaging_name' => $itemData->packagingName ?? $this->productUnitService->resolveDisplayUnit($product->base_unit_id),
                     'packaging_quantity' => $itemData->packagingQuantity,
                     'base_unit_quantity' => $authoritativeBaseUnitQty,
                     'base_quantity' => $baseQty,

@@ -177,6 +177,7 @@ export default function PurchaseBillPage() {
       ...u, id: u.id, name: u.name, quantity: u.quantity || 1,
       salePrice: u.sale_price || 0, isDefault: u.is_default || false,
       unitId: String(u.unit_id || ''),
+      purchaseCost: u.purchase_cost ?? null,
     })),
     purchaseConfig: {
       name: 'Pack',

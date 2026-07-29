@@ -7,9 +7,12 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { getUnit, getBaseUnitOptions, getDefaultUnitForCategory } from '@/lib/units'
+import { resolveUnitDisplay, formatStock } from '@/lib/product-unit-display'
 import { calculateMargin } from '@/lib/product-adapter'
-import PackagingLevelsBuilder from './PackagingLevelsBuilder'
-import type { SellingUnit, PackagingLevel, PackagingPreviewUnit } from '@/types'
+import UnitRelationEditor from '@/components/unit/UnitRelationEditor'
+import { transformRelationships } from '@/lib/unit-relation-transformer'
+import type { UnitRelation } from '@/lib/unit-relation-validator'
+import type { SellingUnit } from '@/types'
 
 interface ProductFormProps {
   mode: 'create' | 'edit'
@@ -33,20 +36,6 @@ function generateSku(category: string, sequence: number): string {
   return getCategoryPrefix(category) + '-' + String(sequence).padStart(3, '0')
 }
 
-/** Check whether a unit ID represents a measurement type (weight/volume/length). */
-function isMeasurementUnit(unitId: string): boolean {
-  const unit = getUnit(unitId)
-  return unit?.measurementType === 'weight' || unit?.measurementType === 'volume' || unit?.measurementType === 'length'
-}
-
-/** Check if a unit suggests packaging (count units that aren't Piece). */
-function isPackagingUnit(unitId: string): boolean {
-  const unit = getUnit(unitId)
-  if (!unit || unit.measurementType !== 'count') return false
-  const packagingUnits = ['box', 'carton', 'bottle', 'strip', 'packet', 'sachet', 'roll', 'tray']
-  return packagingUnits.includes(unit.id)
-}
-
 // ── Main Component ──
 
 export default function ProductForm({ mode, categories = [], product = null, generatedSku }: ProductFormProps) {
@@ -68,11 +57,8 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? true)
   const [description, setDescription] = useState('')
 
-  // ── Packaging conversion (inline in Quick Entry for packaging-type units) ──
-  // When user selects a packaging unit (Box, Strip, etc.), this captures
-  // what the unit CONTAINS in base units. E.g. "Strip = 12 Capsules".
-  const [pkgConversionQty, setPkgConversionQty] = useState(1)
-  const [pkgConversionUnitId, setPkgConversionUnitId] = useState('')
+  // ── Unit relationships ──
+  const [relationships, setRelationships] = useState<UnitRelation[]>([])
 
   // ── Selling units ──
   const [sellingUnits, setSellingUnits] = useState<SellingUnit[]>(() => {
@@ -102,35 +88,8 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     }]
   })
 
-  // ── Packaging state ──
-  const [packagingLevels, setPackagingLevels] = useState<PackagingLevel[]>(() => {
-    if (product?.packaging?.length) {
-      return product.packaging.map((p: any, i: number) => ({
-        _key: `pl-${p.id || i}`,
-        containerUnitId: p.container_unit_id ?? p.containerUnitId ?? null,
-        containerName: p.container_unit?.name || p.containerName || '',
-        containsUnitId: p.contains_unit_id ?? p.containsUnitId ?? null,
-        containsName: p.contains_unit?.name || p.containsName || '',
-        quantity: p.quantity ?? 1,
-        level: p.level ?? (i + 1),
-      }))
-    }
-    return []
-  })
-  const [previewUnits, setPreviewUnits] = useState<PackagingPreviewUnit[]>([])
-
-  // Reconcile preview units with sale prices
-  const derivedUnits = useMemo(() => {
-    return previewUnits.map((pu) => {
-      const existing = sellingUnits.find((su) => su.productUnitId === pu.product_unit_id)
-      return {
-        ...pu,
-        salePrice: existing?.salePrice ?? pu.sale_price,
-        packagingId: existing?.packagingId ?? null,
-        productUnitId: pu.product_unit_id,
-      }
-    })
-  }, [previewUnits, sellingUnits])
+  // ── Unit relationships state ──
+  // (replaces packaging levels + derived units + inline conversion)
 
   // ── Session ──
   const [sessionCount, setSessionCount] = useState(0)
@@ -160,10 +119,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   }, [category, skuSequence, isEditing])
 
   // When base unit changes: update the default selling unit name.
-  // For packaging-type units, we wait for the inline conversion row instead.
   useEffect(() => {
-    if (isPackagingUnit(baseUnitId)) return
-
     const unit = getUnit(baseUnitId)
     if (unit) {
       setSellingUnits((prev) => {
@@ -178,42 +134,8 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     }
   }, [baseUnitId])
 
-  // When packaging conversion row is filled, sync it into the default selling unit.
-  // E.g., user selects Strip as unit, then says "= 12 Capsules" → selling unit
-  // becomes "Strip (qty: 12, unit: capsule)". Also updates baseUnitId to the
-  // selected base unit so stock is tracked correctly.
-  useEffect(() => {
-    if (!isPackagingUnit(baseUnitId) || !pkgConversionUnitId || pkgConversionQty <= 0) return
-
-    const unit = getUnit(baseUnitId)
-    const baseUnit = getUnit(pkgConversionUnitId)
-    if (!unit || !baseUnit) return
-
-    setSellingUnits((prev) => {
-      const def = prev.find((su) => su.isDefault)
-      if (def) {
-        return prev.map((su) =>
-          su.isDefault ? {
-            ...su,
-            name: unit.name,
-            unitId: pkgConversionUnitId,
-            quantity: pkgConversionQty,
-          } : su
-        )
-      }
-      return prev
-    })
-  }, [pkgConversionQty, pkgConversionUnitId, baseUnitId])
-
   // ── Cost per base unit ──
   const costPerBaseUnit = parseFloat(purchaseCost) || 0
-
-  // ── Detect product scenario ──
-  const productScenario = useMemo<'simple' | 'measurement' | 'packaging'>(() => {
-    if (isMeasurementUnit(baseUnitId)) return 'measurement'
-    if (isPackagingUnit(baseUnitId)) return 'packaging'
-    return 'simple'
-  }, [baseUnitId])
 
   // ── Build payload ──
 
@@ -221,39 +143,27 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     const stockQty = parseFloat(openingStock) || 0
     const catId = categories.find((c: any) => c.name === category)?.id || null
 
-    // Merge derived preview units + custom selling units
-    const mergedSellingUnits = [
-      ...derivedUnits.map((du) => ({
-        name: du.name,
-        quantity: du.quantity,
-        sale_price: du.salePrice ?? 0,
-        is_default: false,
-        product_unit_id: du.productUnitId,
-      })),
-      ...sellingUnits
-        .filter((su) => !su.packagingId && !derivedUnits.some((du) => du.productUnitId === su.productUnitId))
-        .map((su) => ({
-          name: su.name,
-          quantity: su.quantity,
-          sale_price: su.salePrice,
-          is_default: su.isDefault,
-          product_unit_id: su.productUnitId ?? null,
-        })),
-    ]
+    let packaging: any[] = []
+    let sellingUnitsOut: any[] = []
+    const unit = getUnit(baseUnitId)
 
-    // Ensure at least one default
-    if (mergedSellingUnits.length === 0 || !mergedSellingUnits.some((su) => su.is_default)) {
-      if (mergedSellingUnits.length > 0) mergedSellingUnits[0].is_default = true
-      else {
-        const unit = getUnit(baseUnitId)
-        mergedSellingUnits.push({
-          name: unit?.name || 'Piece',
-          quantity: 1,
-          sale_price: sellingPrice,
-          is_default: true,
-          product_unit_id: null,
-        })
-      }
+    if (relationships.length > 0) {
+      // Use the Relationship Transformer to generate packaging + selling_units
+      const transformed = transformRelationships(
+        unit?.name || baseUnitId || 'Unit',
+        relationships
+      )
+      packaging = transformed.packaging
+      sellingUnitsOut = transformed.selling_units
+    } else {
+      // Simple product — single selling unit
+      sellingUnitsOut = [{
+        name: unit?.name || 'Piece',
+        quantity: 1,
+        sale_price: sellingPrice,
+        is_default: true,
+        product_unit_id: null,
+      }]
     }
 
     return {
@@ -264,15 +174,8 @@ export default function ProductForm({ mode, categories = [], product = null, gen
       description: description || '',
       product_type: 'simple',
       base_unit_id: baseUnitId,
-      selling_units: mergedSellingUnits,
-      packaging: packagingLevels
-        .filter((pl) => pl.containerUnitId && pl.containsUnitId && pl.quantity > 0)
-        .map((pl) => ({
-          container_unit_id: pl.containerUnitId,
-          contains_unit_id: pl.containsUnitId,
-          quantity: pl.quantity,
-          level: pl.level,
-        })),
+      selling_units: sellingUnitsOut,
+      packaging,
       stock_quantity: stockQty,
       low_stock_threshold: parseInt(lowStockThreshold) || 100,
       default_purchase_cost: purchaseCost ? parseFloat(purchaseCost) : null,
@@ -281,7 +184,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     }
   }, [
     name, sku, skuSequence, category, barcode, description, baseUnitId,
-    sellingUnits, packagingLevels, derivedUnits, sellingPrice,
+    relationships, sellingPrice,
     openingStock, lowStockThreshold, purchaseCost, allowNegativeStock, categories,
   ])
 
@@ -317,8 +220,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
           setSessionCount((c) => c + 1)
           setName('')
           setOpeningStock('')
-          setPackagingLevels([])
-          setPreviewUnits([])
+          setRelationships([])
           setSellingUnits([{
             id: 'default', name: getUnit(baseUnitId)?.name || 'Piece', unitId: baseUnitId,
             quantity: 1, salePrice: 0, isDefault: true, productUnitId: null, packagingId: null,
@@ -439,66 +341,15 @@ export default function ProductForm({ mode, categories = [], product = null, gen
             </div>
           </div>
 
-          {/* Scenario: packaging-type unit (Box, Strip, Carton…) */}
-          {productScenario === 'packaging' && (
-            <div className="space-y-2 px-3 py-3 rounded-lg bg-primary/[0.04]">
-              <div className="text-xs font-medium text-foreground">
-                Selling in <span className="font-semibold">{getUnit(baseUnitId)?.name || baseUnitId}</span>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-muted-foreground">Each {getUnit(baseUnitId)?.name || baseUnitId}</span>
-                <span className="text-muted-foreground">=</span>
-                <input
-                  type="number"
-                  value={pkgConversionQty || ''}
-                  onChange={(e) => setPkgConversionQty(parseFloat(e.target.value) || 0)}
-                  placeholder="Qty"
-                  min="0.01"
-                  step="any"
-                  className="w-16 h-8 px-2 rounded border border-input bg-background text-xs text-center outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
-                />
-                <span className="text-xs text-muted-foreground">×</span>
-                <InlineUnitSelect
-                  value={pkgConversionUnitId}
-                  onChange={(id) => {
-                    setPkgConversionUnitId(id)
-                    // Also update the product base_unit_id so stock is tracked correctly
-                    if (id) {
-                      // This is handled by the useEffect above which syncs into sellingUnits
-                    }
-                  }}
-                  placeholder="unit"
-                  excludeId={baseUnitId}
-                />
-              </div>
-              <div className="flex items-center gap-3 text-xs">
-                {pkgConversionUnitId && pkgConversionQty > 0 ? (
-                  <span className="text-muted-foreground">
-                    ✓ {getUnit(baseUnitId)?.name || baseUnitId} × {pkgConversionQty} {getUnit(pkgConversionUnitId)?.name || pkgConversionUnitId} per unit
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground/60">Define what each {getUnit(baseUnitId)?.name || baseUnitId} contains</span>
-                )}
-                <button type="button" onClick={() => setAdvancedOpen(true)}
-                  className="text-primary underline ml-auto">
-                  Multi-level packaging
-                </button>
-              </div>
-            </div>
-          )}
-          {productScenario === 'measurement' && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/[0.04] text-xs text-muted-foreground">
-              <span>⚙️</span>
-              <span>Measurement product — selling in {baseUnitId} and sub-units is automatic</span>
-            </div>
-          )}
-
-          {productScenario === 'simple' && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 text-xs text-muted-foreground">
-              <span>•</span>
-              <span>Selling as {getUnit(baseUnitId)?.name || baseUnitId}</span>
-            </div>
-          )}
+          {/* ── Unit Relationships ── */}
+          <div className="pt-2">
+            <UnitRelationEditor
+              defaultUnitId={baseUnitId}
+              onDefaultUnitChange={setBaseUnitId}
+              relationships={relationships}
+              onRelationshipsChange={setRelationships}
+            />
+          </div>
 
           <SectionDivider />
 
@@ -542,7 +393,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
                     </label>
                     {isEditing ? (
                       <div className="w-full h-10 px-3 rounded-lg border border-input bg-muted text-sm leading-10">
-                        {product?.stock_quantity ?? 0} {getUnit(baseUnitId)?.name || baseUnitId}
+                        {formatStock(product?.stock_quantity ?? 0, resolveUnitDisplay(baseUnitId))}
                       </div>
                     ) : (
                       <input type="number" placeholder="0" value={openingStock}
@@ -556,96 +407,6 @@ export default function ProductForm({ mode, categories = [], product = null, gen
                       onChange={(e) => setLowStockThreshold(e.target.value)}
                       className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
                   </div>
-                </div>
-
-                {/* ── Packaging Levels (only for packaging-type units) ── */}
-                {(productScenario === 'packaging' || packagingLevels.length > 0) && (
-                  <div className="pt-1">
-                    <PackagingLevelsBuilder
-                      levels={packagingLevels}
-                      onChange={setPackagingLevels}
-                      baseUnitId={baseUnitId}
-                      onPreview={setPreviewUnits}
-                      disabled={false}
-                    />
-                  </div>
-                )}
-
-                {/* ── Selling Sizes (manual custom units) ── */}
-                <div>
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    Selling Sizes
-                  </h4>
-
-                  {derivedUnits.length > 0 && (
-                    <div className="mb-3 space-y-1">
-                      <p className="text-[10px] text-muted-foreground">Auto-generated from packaging:</p>
-                      {derivedUnits.map((du) => (
-                        <DerivedUnitRow
-                          key={du.product_unit_id}
-                          unit={du}
-                          sellingUnit={sellingUnits.find((su) => su.productUnitId === du.product_unit_id)}
-                          onPriceChange={(price) => {
-                            setSellingUnits((prev) => {
-                              const existing = prev.find((su) => su.productUnitId === du.product_unit_id)
-                              if (existing) {
-                                return prev.map((su) =>
-                                  su.productUnitId === du.product_unit_id ? { ...su, salePrice: price } : su
-                                )
-                              }
-                              const unit = getUnit(baseUnitId)
-                              return [...prev, {
-                                id: `su-${du.product_unit_id}`,
-                                name: du.name,
-                                unitId: baseUnitId,
-                                quantity: du.quantity,
-                                salePrice: price,
-                                isDefault: prev.length === 0,
-                                productUnitId: du.product_unit_id,
-                                packagingId: du.packagingId ?? null,
-                              }]
-                            })
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Manual custom selling units */}
-                  {sellingUnits
-                    .filter((su) => !su.packagingId && !derivedUnits.some((du) => du.productUnitId === su.productUnitId))
-                    .map((su, idx) => (
-                      <SellingUnitRow
-                        key={su.id}
-                        unit={su}
-                        isDefault={idx === 0 && derivedUnits.length === 0}
-                        costPerBaseUnit={costPerBaseUnit}
-                        baseUnitId={baseUnitId}
-                        onChange={(updated) => setSellingUnits((prev) =>
-                          prev.map((s) => (s.id === updated.id ? updated : s))
-                        )}
-                        onRemove={idx > 0 || derivedUnits.length > 0 ? () => {
-                          setSellingUnits((prev) => prev.filter((s) => s.id !== su.id))
-                        } : undefined}
-                        defaultSalePrice={sellingPrice}
-                      />
-                    ))}
-
-                  <button type="button" onClick={() => {
-                    const unit = getUnit(baseUnitId)
-                    setSellingUnits((prev) => [...prev, {
-                      id: `su-${Date.now()}`,
-                      name: unit?.name || 'Piece',
-                      unitId: baseUnitId,
-                      quantity: 1,
-                      salePrice: 0,
-                      isDefault: prev.length === 0 && derivedUnits.length === 0,
-                      productUnitId: null,
-                      packagingId: null,
-                    }])
-                  }} className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors">
-                    <Plus className="size-3.5" /> Add Custom Size
-                  </button>
                 </div>
 
                 {/* ── Negative Stock ── */}
