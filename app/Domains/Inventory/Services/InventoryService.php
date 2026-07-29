@@ -211,7 +211,7 @@ class InventoryService
         // Determine if this is a reversal transaction (reference prefixed with REV- should always be allowed)
         $isReversal = $reference !== null && str_starts_with($reference, 'REV-');
         // Determine if negative stock is allowed for this product
-        $productAllowsNegative = $product->allow_negative_stock ?? app(\App\Domains\Settings\Services\SettingService::class)->get()['inventory']['allow_negative_stock'] ?? false;
+        $productAllowsNegative = $product->allow_negative_stock ?? app(\App\Domains\Settings\Services\SettingService::class)->get()['inventory']['allow_negative_stock'] ?? true;
 
         // Prevent negative stock for sales (unless allowed or bypassed by user confirmation)
         if ($quantity < 0 && $product->stock_quantity + $quantity < 0 && !$isReversal && !$productAllowsNegative && !($product->track_inventory === false) && !$bypassStockCheck) {

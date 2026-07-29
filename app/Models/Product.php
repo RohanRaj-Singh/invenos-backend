@@ -12,6 +12,7 @@ class Product extends Model
     protected $attributes = [
         'stock_quantity' => 0,
         'status' => 'out-of-stock',
+        'allow_negative_stock' => true,
     ];
 
     protected $fillable = [
