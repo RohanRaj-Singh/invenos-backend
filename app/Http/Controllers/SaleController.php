@@ -55,7 +55,8 @@ class SaleController extends Controller
     public function store(CreateSaleRequest $request): RedirectResponse
     {
         $data = CreateSaleData::fromRequest($request->validated());
-        $sale = $this->saleService->create($data);
+        $bypassStock = $request->boolean('bypass_stock_check', false);
+        $sale = $this->saleService->create($data, $bypassStock);
 
         return redirect()->route('sales.show', $sale->id)
             ->with('success', 'Sale created successfully.');

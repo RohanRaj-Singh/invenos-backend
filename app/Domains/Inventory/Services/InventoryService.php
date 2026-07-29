@@ -116,6 +116,7 @@ class InventoryService
         ?string $notes = null,
         ?string $user = null,
         ?int $referenceId = null,
+        bool $bypassStockCheck = false,
     ): InventoryTransaction {
         return $this->applyMovement(
             productId: $productId,
@@ -128,6 +129,7 @@ class InventoryService
             user: $user,
             referenceType: 'sale',
             referenceId: $referenceId,
+            bypassStockCheck: $bypassStockCheck,
         );
     }
 
@@ -201,6 +203,7 @@ class InventoryService
         ?string $user = null,
         ?string $referenceType = null,
         ?int $referenceId = null,
+        bool $bypassStockCheck = false,
     ): InventoryTransaction {
         // Lock the product row for concurrency safety
         $product = Product::lockForUpdate()->findOrFail($productId);
@@ -210,8 +213,8 @@ class InventoryService
         // Determine if negative stock is allowed for this product
         $productAllowsNegative = $product->allow_negative_stock ?? app(\App\Domains\Settings\Services\SettingService::class)->get()['inventory']['allow_negative_stock'] ?? false;
 
-        // Prevent negative stock for sales (unless allowed)
-        if ($quantity < 0 && $product->stock_quantity + $quantity < 0 && !$isReversal && !$productAllowsNegative && !($product->track_inventory === false)) {
+        // Prevent negative stock for sales (unless allowed or bypassed by user confirmation)
+        if ($quantity < 0 && $product->stock_quantity + $quantity < 0 && !$isReversal && !$productAllowsNegative && !($product->track_inventory === false) && !$bypassStockCheck) {
             throw new \InvalidArgumentException("Insufficient stock for product '{$product->name}' (available: {$product->stock_quantity}, requested: " . abs($quantity) . ")");
         }
 

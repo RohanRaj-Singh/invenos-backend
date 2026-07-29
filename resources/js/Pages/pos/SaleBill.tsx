@@ -209,6 +209,11 @@ export default function SaleBillPage() {
   const [showMobilePayment, setShowMobilePayment] = useState(false)
   const [showClearConfirm, setShowClearConfirm] = useState(false)
 
+  // Low stock warning state
+  const [showLowStockWarning, setShowLowStockWarning] = useState(false)
+  const [lowStockItems, setLowStockItems] = useState<string>('')
+  const [confirmingSale, setConfirmingSale] = useState(false)
+
   // Per-item overrides
   const [priceOverrides, setPriceOverrides] = useState<Record<string, number>>({})
   const [discountPcts, setDiscountPcts] = useState<Record<string, number>>({})
@@ -625,18 +630,29 @@ export default function SaleBillPage() {
   const handleRecordSale = useCallback(() => {
     if (cart.length === 0) return
 
-    // Pre-submit sanity check: warn if any item's base qty far exceeds available stock
-    for (const item of cart) {
+    // Pre-submit stock check: find any items with insufficient stock
+    const lowStock = cart.filter((item) => {
       const product = posProducts.find((p: any) => String(p.id) === String(item.productId))
-      if (product?.track_inventory === false) continue
+      if (product?.track_inventory === false) return false
       const baseQty = item.packagingQuantity * item.baseUnitQuantity
       const stock = product?.stockQuantity ?? 0
-      if (baseQty > stock * 10 && stock > 0) {
-        const msg = 'You are about to sell ' + baseQty + ' ' + (product.baseUnitId || 'units') + ' of ' + item.name + ', but only ' + stock + ' ' + (product.baseUnitId || 'units') + ' are in stock. Check the selected unit.'
-        if (!confirm(msg)) return
-      }
+      return stock < baseQty
+    })
+
+    if (lowStock.length > 0) {
+      const msg = lowStock.map((item) => {
+        const product = posProducts.find((p: any) => String(p.id) === String(item.productId))
+        return `${item.name}: ${item.packagingQuantity} ${item.packagingName} requested, ${product?.stockQuantity ?? 0} in stock`
+      }).join('\n')
+      setLowStockItems(msg)
+      setShowLowStockWarning(true)
+      return
     }
 
+    submitSale(false)
+  }, [cart, posProducts, submitSale])
+
+  const submitSale = useCallback((bypassStockCheck: boolean) => {
     const today = new Date().toISOString().split('T')[0]
     const paid = parseFloat(amountPaid) || grandTotal
     const paymentStatus = paid >= grandTotal ? 'paid' : paid > 0 ? 'partial' : 'unpaid'
@@ -657,6 +673,7 @@ export default function SaleBillPage() {
       payment_status: paymentStatus,
       source: 'pos',
       date: today,
+      bypass_stock_check: bypassStockCheck,
     }, {
       onSuccess: () => {
         const routerAny = router as any
@@ -1137,6 +1154,28 @@ export default function SaleBillPage() {
           toast.success('Cart cleared')
         }}
       />
+
+      {/* ── Low Stock Warning Dialog ── */}
+      <Dialog open={showLowStockWarning} onOpenChange={setShowLowStockWarning}>
+        <DialogContent className="sm:max-w-md gap-0 p-0">
+          <DialogHeader className="p-5 pb-0">
+            <DialogTitle className="text-base">⚠️ Insufficient Stock</DialogTitle>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <p className="text-sm text-muted-foreground">The following items have insufficient stock:</p>
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
+              <pre className="text-xs whitespace-pre-wrap font-sans text-amber-800 dark:text-amber-300">{lowStockItems}</pre>
+            </div>
+            <p className="text-xs text-muted-foreground">Stock will go negative for these items. Do you want to proceed?</p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowLowStockWarning(false)} className="flex-1">Cancel</Button>
+              <Button onClick={() => { setShowLowStockWarning(false); submitSale(true) }} className="flex-1 gap-1.5">
+                Proceed with Sale
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Mobile Payment Drawer ── */}
       <MobilePaymentDrawer

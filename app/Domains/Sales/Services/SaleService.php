@@ -41,13 +41,13 @@ class SaleService
         return $q->orderBy('created_at', 'desc')->paginate($perPage);
     }
 
-    public function create(CreateSaleData $data): Sale
+    public function create(CreateSaleData $data, bool $bypassStockCheck = false): Sale
     {
         if (empty($data->items)) {
             throw new \InvalidArgumentException('Sale must have at least one item.');
         }
 
-        return DB::transaction(function () use ($data) {
+        return DB::transaction(function () use ($data, $bypassStockCheck) {
             // Resolve customer — 0 means walk-in
             $customer = null;
             if ($data->customerId > 0) {
@@ -137,6 +137,7 @@ class SaleService
                     notes: "Sale to " . ($customer?->name ?? 'Walk-in Customer'),
                     user: $data->createdBy,
                     referenceId: $sale->id,
+                    bypassStockCheck: $data->bypassStockCheck ?? false,
                 );
             }
 
