@@ -31,10 +31,6 @@ Route::prefix('inventory')->group(function () {
     Route::delete('/product/{id}', [ProductController::class, 'destroy'])->name('inventory.destroy');
     Route::post('/product/{id}/archive', [ProductController::class, 'archive'])->name('inventory.archive');
     Route::get('/generate-sku', [ProductController::class, 'generateSku'])->name('inventory.generate-sku');
-    Route::post('/preview-packaging', [ProductController::class, 'previewPackaging'])->name('inventory.preview-packaging');
-    Route::get('/product-units', [ProductController::class, 'productUnits'])->name('inventory.product-units');
-    Route::get('/measurement-options', [ProductController::class, 'measurementOptions'])->name('inventory.measurement-options');
-    Route::post('/adjust', [InventoryController::class, 'adjust'])->name('inventory.adjust');
 });
 
 Route::prefix('purchases')->group(function () {
@@ -59,99 +55,62 @@ Route::prefix('sales')->group(function () {
     Route::delete('/{id}', [SaleController::class, 'destroy'])->name('sales.destroy');
 });
 
-Route::prefix('returns')->group(function () {
-    Route::get('/sale', fn () => Inertia::render('returns/ReturnPage', ['type' => 'sale']))->name('returns.sale.create');
-    Route::get('/purchase', fn () => Inertia::render('returns/ReturnPage', ['type' => 'purchase']))->name('returns.purchase.create');
-});
-
 Route::prefix('expenses')->group(function () {
     Route::get('/', [\App\Http\Controllers\ExpenseController::class, 'index'])->name('expenses.index');
     Route::get('/new', [\App\Http\Controllers\ExpenseController::class, 'create'])->name('expenses.create');
     Route::post('/', [\App\Http\Controllers\ExpenseController::class, 'store'])->name('expenses.store');
-    Route::get('/categories', fn () => Inertia::render('expenses/ExpenseCategories'))->name('expenses.categories');
-    Route::post('/categories', [\App\Http\Controllers\ExpenseController::class, 'storeCategory'])->name('expenses.categories.store');
+    Route::get('/categories', [\App\Http\Controllers\ExpenseController::class, 'listCategories'])->name('expenses.categories');
     Route::get('/{id}', [\App\Http\Controllers\ExpenseController::class, 'show'])->name('expenses.show');
-    Route::get('/{id}/edit', [\App\Http\Controllers\ExpenseController::class, 'edit'])->name('expenses.edit');
-    Route::put('/{id}', [\App\Http\Controllers\ExpenseController::class, 'update'])->name('expenses.update');
-    Route::delete('/{id}', [\App\Http\Controllers\ExpenseController::class, 'destroy'])->name('expenses.destroy');
 });
 
 Route::prefix('contacts')->group(function () {
     Route::get('/', [ContactController::class, 'index'])->name('contacts.index');
-    Route::get('/add', [ContactController::class, 'create'])->name('contacts.create');
+    Route::get('/create', [ContactController::class, 'create'])->name('contacts.create');
     Route::post('/', [ContactController::class, 'store'])->name('contacts.store');
     Route::get('/{id}', [ContactController::class, 'show'])->name('contacts.show');
     Route::put('/{id}', [ContactController::class, 'update'])->name('contacts.update');
-    Route::delete('/{id}', [ContactController::class, 'destroy'])->name('contacts.destroy');
+    Route::get('/{id}/edit', [ContactController::class, 'edit'])->name('contacts.edit');
+    Route::post('/{id}/ledger', [ContactController::class, 'ledger'])->name('contacts.ledger');
 });
 
 Route::prefix('payments')->group(function () {
     Route::get('/', [\App\Http\Controllers\PaymentController::class, 'index'])->name('payments.index');
     Route::post('/', [\App\Http\Controllers\PaymentController::class, 'store'])->name('payments.store');
-    Route::post('/customer-payment', [\App\Http\Controllers\PaymentController::class, 'storeCustomerPayment'])->name('payments.customer.store');
-    Route::post('/supplier-payment', [\App\Http\Controllers\PaymentController::class, 'storeSupplierPayment'])->name('payments.supplier.store');
-    Route::get('/{id}/print', [\App\Http\Controllers\PaymentController::class, 'printPayment'])->name('payments.print');
+    Route::post('/customer', [\App\Http\Controllers\PaymentController::class, 'storeCustomerPayment'])->name('payments.customer.store');
+    Route::post('/supplier', [\App\Http\Controllers\PaymentController::class, 'storeSupplierPayment'])->name('payments.supplier.store');
     Route::delete('/{id}', [\App\Http\Controllers\PaymentController::class, 'destroy'])->name('payments.destroy');
+    Route::get('/print/receipt/{id}', [\App\Http\Controllers\PaymentController::class, 'printReceipt'])->name('payments.print');
 });
 
-Route::prefix('reports')->group(function () {
-    Route::get('/', [ReportController::class, 'index'])->name('reports.index');
-    // Sales reports
-    Route::get('/sales', [ReportController::class, 'salesRegister'])->name('reports.sales');
-    Route::get('/sales/by-customer', [ReportController::class, 'salesByCustomer'])->name('reports.sales.by-customer');
-    Route::get('/sales/top-products', [ReportController::class, 'topProducts'])->name('reports.sales.top-products');
-    // Purchase reports
-    Route::get('/purchases', [ReportController::class, 'purchaseRegister'])->name('reports.purchases');
-    // Inventory reports
-    Route::get('/stock', [ReportController::class, 'stockSummary'])->name('reports.stock');
-    Route::get('/stock/ledger', [ReportController::class, 'stockLedger'])->name('reports.stock.ledger');
-    Route::get('/stock/low-stock', [ReportController::class, 'lowStock'])->name('reports.stock.low-stock');
-    // Contact reports
-    Route::get('/customers/ledger', [ReportController::class, 'customerLedger'])->name('reports.customers.ledger');
-    Route::get('/suppliers/ledger', [ReportController::class, 'supplierLedger'])->name('reports.suppliers.ledger');
-    // Day Book
-    Route::get('/day-book', [ReportController::class, 'dayBook'])->name('reports.day-book');
-    // Financial Overview
-    Route::get('/financial-overview', [ReportController::class, 'financialOverview'])->name('reports.financial-overview');
-    // Product reports
-    Route::get('/product-ledger', [ReportController::class, 'productTimeline'])->name('reports.product-ledger');
-    // Exports (CSV)
-    Route::get('/sales/export/csv', [ReportController::class, 'exportSalesCsv'])->name('reports.sales.export.csv');
-    Route::get('/purchases/export/csv', [ReportController::class, 'exportPurchasesCsv'])->name('reports.purchases.export.csv');
-    Route::get('/stock/export/csv', [ReportController::class, 'exportStockCsv'])->name('reports.stock.export.csv');
-    Route::get('/stock/ledger/export/csv', [ReportController::class, 'exportStockLedgerCsv'])->name('reports.stock.ledger.export.csv');
-    Route::get('/stock/low-stock/export/csv', [ReportController::class, 'exportLowStockCsv'])->name('reports.stock.low-stock.export.csv');
-    Route::get('/day-book/export/csv', [ReportController::class, 'exportDayBookCsv'])->name('reports.day-book.export.csv');
-    // Legacy / backup pages (still use closure for pages that need frontend-only for now)
-    Route::get('/cash-flow', fn () => \Inertia\Inertia::render('reports/CashFlowReport'))->name('reports.cash-flow');
-    Route::get('/pnl', fn () => \Inertia\Inertia::render('reports/PnLReport'))->name('reports.pnl');
-    Route::get('/balance-sheet', fn () => \Inertia\Inertia::render('reports/BalanceSheetReport'))->name('reports.balance-sheet');
-    Route::get('/party', fn () => \Inertia\Inertia::render('reports/PartyReport'))->name('reports.party');
-    // Share & export endpoints
-    Route::get('/share/{report}', [\App\Http\Controllers\ReportShareController::class, 'share'])->name('reports.share');
-    Route::get('/share/download/{path}', [\App\Http\Controllers\ReportShareController::class, 'download'])->name('reports.share.download');
-});
-
-Route::prefix('settings')->group(function () {
-    Route::get('/', [SettingsController::class, 'index'])->name('settings.index');
-    Route::put('/', [SettingsController::class, 'update'])->name('settings.update');
-    Route::get('/business', [SettingsController::class, 'edit'])->name('settings.business')->defaults('group', 'business');
-    Route::put('/business', [SettingsController::class, 'update'])->name('settings.business.update');
-    Route::get('/pos', fn () => Inertia::render('settings/POS'))->name('settings.pos');
-    Route::get('/inventory', fn () => Inertia::render('settings/Inventory'))->name('settings.inventory');
-    Route::get('/sales', fn () => Inertia::render('settings/Sales'))->name('settings.sales');
-    Route::get('/purchases', fn () => Inertia::render('settings/Purchases'))->name('settings.purchases');
-    Route::get('/receipt', fn () => Inertia::render('settings/Receipt'))->name('settings.receipt');
-    Route::get('/users', fn () => Inertia::render('settings/UsersList'))->name('settings.users');
-    Route::get('/users/new', fn () => Inertia::render('settings/UserForm'))->name('settings.users.create');
-    Route::get('/users/{id}', fn (string $id) => Inertia::render('settings/UserForm', ['id' => $id]))->name('settings.users.show');
-    Route::get('/users/{id}/permissions', fn (string $id) => Inertia::render('settings/Permissions', ['id' => $id]))->name('settings.users.permissions');
-    Route::get('/backup', [\App\Http\Controllers\BackupController::class, 'index'])->name('settings.backup');
-    Route::post('/backup', [\App\Http\Controllers\BackupController::class, 'create'])->name('settings.backup.create');
-    Route::post('/backup/restore', [\App\Http\Controllers\BackupController::class, 'restore'])->name('settings.backup.restore');
-    Route::get('/backup/download/{filename}', [\App\Http\Controllers\BackupController::class, 'download'])->name('settings.backup.download');
-    Route::delete('/backup/{filename}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('settings.backup.delete');
-    Route::get('/about', fn () => Inertia::render('settings/AboutSystem'))->name('settings.about');
+Route::prefix('returns')->group(function () {
+    Route::get('/sale', function () {
+        $sales = \App\Models\Sale::with('items.product', 'customer')
+            ->orderBy('created_at', 'desc')
+            ->limit(50)
+            ->get();
+        return Inertia::render('returns/ReturnPage', [
+            'transactions' => $sales->toArray(),
+            'type' => 'sale',
+            'strategy' => 'sale-return',
+            'title' => 'Sale Return',
+            'isPurchase' => false,
+            'backPath' => '/sales',
+        ]);
+    })->name('returns.sale.create');
+    Route::get('/purchase', function () {
+        $bills = \App\Models\PurchaseBill::with('items.product', 'supplier')
+            ->orderBy('created_at', 'desc')
+            ->limit(50)
+            ->get();
+        return Inertia::render('returns/ReturnPage', [
+            'transactions' => $bills->toArray(),
+            'type' => 'purchase',
+            'strategy' => 'purchase-return',
+            'title' => 'Purchase Return',
+            'isPurchase' => true,
+            'backPath' => '/purchases',
+        ]);
+    })->name('returns.purchase.create');
 });
 
 Route::prefix('clinic')->group(function () {
@@ -160,7 +119,6 @@ Route::prefix('clinic')->group(function () {
     Route::get('/patient/{id}/visit', [ClinicController::class, 'createVisit'])->name('clinic.visit');
     Route::post('/visits', [ClinicController::class, 'storeVisit'])->name('clinic.visits.store');
     Route::get('/visit/{id}', [ClinicController::class, 'showVisit'])->name('clinic.visit.show');
-    // Lifecycle operations
     Route::delete('/consultations/{id}', [ClinicController::class, 'destroyConsultation'])->name('clinic.consultations.destroy');
     Route::post('/consultations/{id}/restore', [ClinicController::class, 'restoreConsultation'])->name('clinic.consultations.restore');
     Route::delete('/prescriptions/{id}', [ClinicController::class, 'destroyPrescription'])->name('clinic.prescriptions.destroy');
@@ -175,14 +133,64 @@ Route::middleware('auth')->prefix('api')->group(function () {
     Route::get('/prescription-images/{id}/download', [\App\Http\Controllers\PrescriptionImageController::class, 'download']);
 });
 
-// Utilities — Recycle Bin, Audit Log, System Health
+// Reports
+Route::prefix('reports')->group(function () {
+    Route::get('/', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/sales', [ReportController::class, 'salesRegister'])->name('reports.sales');
+    Route::get('/sales/by-customer', [ReportController::class, 'salesByCustomer'])->name('reports.sales.by-customer');
+    Route::get('/sales/top-products', [ReportController::class, 'topProducts'])->name('reports.sales.top-products');
+    Route::get('/purchases', [ReportController::class, 'purchaseRegister'])->name('reports.purchases');
+    Route::get('/stock', [ReportController::class, 'stockSummary'])->name('reports.stock');
+    Route::get('/stock/ledger', [ReportController::class, 'stockLedger'])->name('reports.stock.ledger');
+    Route::get('/stock/low-stock', [ReportController::class, 'lowStock'])->name('reports.stock.low-stock');
+    Route::get('/customers/ledger', [ReportController::class, 'customerLedger'])->name('reports.customers.ledger');
+    Route::get('/suppliers/ledger', [ReportController::class, 'supplierLedger'])->name('reports.suppliers.ledger');
+    Route::get('/day-book', [ReportController::class, 'dayBook'])->name('reports.day-book');
+    Route::get('/financial-overview', [ReportController::class, 'financialOverview'])->name('reports.financial-overview');
+    Route::get('/product-ledger', [ReportController::class, 'productTimeline'])->name('reports.product-ledger');
+    Route::get('/sales/export/csv', [ReportController::class, 'exportSalesCsv'])->name('reports.sales.export.csv');
+    Route::get('/purchases/export/csv', [ReportController::class, 'exportPurchasesCsv'])->name('reports.purchases.export.csv');
+    Route::get('/stock/export/csv', [ReportController::class, 'exportStockCsv'])->name('reports.stock.export.csv');
+    Route::get('/stock/ledger/export/csv', [ReportController::class, 'exportStockLedgerCsv'])->name('reports.stock.ledger.export.csv');
+    Route::get('/stock/low-stock/export/csv', [ReportController::class, 'exportLowStockCsv'])->name('reports.stock.low-stock.export.csv');
+    Route::get('/day-book/export/csv', [ReportController::class, 'exportDayBookCsv'])->name('reports.day-book.export.csv');
+    // Share & export endpoints
+    Route::get('/share/{report}', [\App\Http\Controllers\ReportShareController::class, 'share'])->name('reports.share');
+    Route::get('/share/download/{path}', [\App\Http\Controllers\ReportShareController::class, 'download'])->name('reports.share.download');
+    // Legacy / backup pages
+    Route::get('/cash-flow', fn () => Inertia::render('reports/CashFlowReport'))->name('reports.cash-flow');
+    Route::get('/pnl', fn () => Inertia::render('reports/PnLReport'))->name('reports.pnl');
+    Route::get('/balance-sheet', fn () => Inertia::render('reports/BalanceSheetReport'))->name('reports.balance-sheet');
+    Route::get('/party', fn () => Inertia::render('reports/PartyReport'))->name('reports.party');
+});
+
+Route::prefix('settings')->group(function () {
+    Route::get('/', [SettingsController::class, 'index'])->name('settings.index');
+    Route::put('/', [SettingsController::class, 'update'])->name('settings.update');
+    Route::get('/business', [SettingsController::class, 'edit'])->name('settings.business')->defaults('group', 'business');
+    Route::put('/business', [SettingsController::class, 'update'])->name('settings.business.update');
+    Route::get('/pos', fn () => Inertia::render('settings/POS'))->name('settings.pos');
+    Route::get('/inventory', fn () => Inertia::render('settings/Inventory'))->name('settings.inventory');
+    Route::get('/sales', fn () => Inertia::render('settings/Sales'))->name('settings.sales');
+    Route::get('/purchases', fn () => Inertia::render('settings/Purchases'))->name('settings.purchases');
+    Route::get('/receipt', fn () => Inertia::render('settings/Receipt'))->name('settings.receipt');
+    Route::get('/users', [SettingsController::class, 'users'])->name('settings.users');
+    Route::post('/users', [SettingsController::class, 'storeUser'])->name('settings.users.store');
+    Route::put('/users/{id}', [SettingsController::class, 'updateUser'])->name('settings.users.update');
+    Route::get('/permissions', [SettingsController::class, 'permissions'])->name('settings.permissions');
+    Route::post('/permissions/user/{id}', [SettingsController::class, 'updateUserPermissions'])->name('settings.permissions.update');
+    Route::get('/backup', [\App\Http\Controllers\BackupController::class, 'index'])->name('settings.backup');
+    Route::post('/backup', [\App\Http\Controllers\BackupController::class, 'create'])->name('settings.backup.create');
+    Route::delete('/backup/{filename}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('settings.backup.delete');
+    Route::get('/about', fn () => Inertia::render('settings/AboutSystem'))->name('settings.about');
+});
+
+// Utilities
 Route::middleware('auth')->prefix('utilities')->group(function () {
     Route::get('/recycle-bin', [\App\Http\Controllers\RecycleBinController::class, 'index'])->name('utilities.recycle-bin');
     Route::post('/recycle-bin/{type}/{id}/restore', [\App\Http\Controllers\RecycleBinController::class, 'restore'])->name('utilities.recycle-bin.restore');
     Route::delete('/recycle-bin/{type}/{id}', [\App\Http\Controllers\RecycleBinController::class, 'permanentDelete'])->name('utilities.recycle-bin.permanent-delete');
-
     Route::get('/audit-log', [\App\Http\Controllers\AuditLogController::class, 'index'])->name('utilities.audit-log');
-
     Route::get('/system-health', [\App\Http\Controllers\SystemHealthController::class, 'index'])->name('utilities.system-health');
 });
 

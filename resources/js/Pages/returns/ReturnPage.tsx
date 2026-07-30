@@ -11,8 +11,6 @@ import { ConfirmTransactionDialog } from '@/features/transactions/dialogs/Confir
 import { getCurrentUserName } from '@/data/users'
 import type { TransactionStrategy } from '@/domain/transactions/strategies/types'
 import type { Sale, PurchaseBill } from '@/types'
-import { allSales } from '@/data/sales'
-import { purchaseBills } from '@/data/purchases'
 import { toast } from 'sonner'
 
 type ReturnReason = 'defective' | 'wrong_item' | 'changed_mind' | 'expired' | 'damaged' | 'quality' | 'other'
@@ -58,6 +56,7 @@ interface ReturnPageProps {
 }
 
 export default function ReturnPage({ strategy, backPath, title, isPurchase }: ReturnPageProps) {
+  const { props: inertiaProps } = usePage()
   const { record } = useTransactionRecorder()
 
   const [searchRef, setSearchRef] = useState(() => {
@@ -86,20 +85,22 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
     })
   }
 
+  // Transactions come from Inertia props (loaded from database by the route closure)
+  const rawTransactions: any[] = (inertiaProps as any).transactions || []
   const transactions = useMemo(() => {
     const list = isPurchase
-      ? purchaseBills.map((b) => ({
-          id: b.id, ref: b.invoiceRef, date: b.date,
-          party: b.supplierName, total: b.totalAmount,
-          items: b.items.length, itemsList: b.items,
+      ? rawTransactions.map((b: any) => ({
+          id: b.id, ref: b.invoice_ref, date: b.date,
+          party: b.supplier?.name || b.supplier_name, total: b.total_amount,
+          items: (b.items || []).length, itemsList: b.items || [],
         }))
-      : allSales.map((s) => ({
-          id: s.id, ref: s.invoiceNumber, date: s.date,
-          party: s.customerName || 'Walk-in Customer', total: s.grandTotal,
-          items: s.items.length, itemsList: s.items,
+      : rawTransactions.map((s: any) => ({
+          id: s.id, ref: s.invoice_number, date: s.date,
+          party: s.customer?.name || s.customer_name || 'Walk-in Customer', total: s.grand_total,
+          items: (s.items || []).length, itemsList: s.items || [],
         }))
-    return list.sort((a, b) => b.date.localeCompare(a.date))
-  }, [isPurchase])
+    return list.sort((a: any, b: any) => b.date.localeCompare(a.date))
+  }, [rawTransactions, isPurchase])
 
   const filteredTx = useMemo(() => {
     const q = searchRef.toLowerCase().trim()
@@ -124,35 +125,26 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
   }, [])
 
   const selectTransaction = useCallback((tx: typeof filteredTx[0]) => {
-    if (isPurchase) {
-      const bill = purchaseBills.find((b) => b.id === tx.id)
-      if (!bill) return
-      setOriginalTx(bill)
-      setReturnItems(bill.items.map((item) => ({
-        originalLineId: item.id, productId: item.productId,
-        productName: item.productName, unitName: item.purchasePackName,
-        originalQty: item.purchaseQuantity, originalPrice: item.unitCost,
-        originalTotal: item.totalCost, maxReturnable: item.purchaseQuantity,
-        returnQty: 0, selected: false,
-        reason: 'other' as ReturnReason, condition: 'resellable' as ItemCondition, restock: false,
-      })))
-    } else {
-      const sale = allSales.find((s) => s.id === tx.id)
-      if (!sale) return
-      setOriginalTx(sale)
-      setReturnItems(sale.items.map((item) => ({
-        originalLineId: item.id, productId: item.productId,
-        productName: item.name, unitName: item.packagingName,
-        originalQty: item.packagingQuantity, originalPrice: item.unitPrice,
-        originalTotal: item.total, maxReturnable: item.packagingQuantity,
-        returnQty: 0, selected: false,
-        reason: 'other' as ReturnReason, condition: 'resellable' as ItemCondition, restock: true,
-      })))
-    }
+    // Find the full transaction from the raw props data
+    const raw = rawTransactions.find((r: any) => r.id === tx.id)
+    if (!raw) return
+    setOriginalTx(raw)
+    setReturnItems((raw.items || []).map((item: any) => ({
+      originalLineId: item.id, productId: String(item.product_id || ''),
+      productName: item.product_name || item.name || 'Unknown',
+      unitName: isPurchase ? (item.purchase_pack_name || 'Unit') : (item.packaging_name || 'Unit'),
+      originalQty: isPurchase ? (item.purchase_quantity || 0) : (item.packaging_quantity || 0),
+      originalPrice: isPurchase ? (item.unit_cost || 0) : (item.unit_price || 0),
+      originalTotal: isPurchase ? (item.total_cost || 0) : (item.total || 0),
+      maxReturnable: isPurchase ? (item.purchase_quantity || 0) : (item.packaging_quantity || 0),
+      returnQty: 0, selected: false,
+      reason: 'other' as ReturnReason, condition: 'resellable' as ItemCondition,
+      restock: !isPurchase,
+    })))
     setLoaded(true)
     setSearchRef('')
     setHighlighted(0)
-  }, [isPurchase])
+  }, [rawTransactions, isPurchase])
 
   // Auto-select when navigated from detail page with ref param
   useEffect(() => {
