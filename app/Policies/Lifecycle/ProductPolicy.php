@@ -4,11 +4,12 @@ namespace App\Policies\Lifecycle;
 
 use App\Contracts\Lifecycle\Archivable;
 use App\Contracts\Lifecycle\Deletable;
+use App\Contracts\Lifecycle\PermanentDeletable;
 use App\Models\Product;
-use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User;
 
-class ProductPolicy implements Archivable, Deletable
+class ProductPolicy implements Archivable, Deletable, PermanentDeletable
 {
     public function canArchive(Model $record): void
     {
@@ -25,7 +26,11 @@ class ProductPolicy implements Archivable, Deletable
         /** @var Product $record */
         throw_if($record->stock_quantity > 0,
             'Cannot delete a product with stock. Archive it instead.');
-        throw_if($record->sales()->exists() || $record->purchases()->exists(),
+
+        $hasTransactions = \App\Models\SaleItem::where('product_id', $record->id)->exists()
+            || \App\Models\PurchaseBillItem::where('product_id', $record->id)->exists();
+
+        throw_if($hasTransactions,
             'Cannot delete a product with transaction history. Archive it instead.');
     }
 
@@ -47,5 +52,10 @@ class ProductPolicy implements Archivable, Deletable
     public function executeDelete(Model $record, User $user): void
     {
         // No inventory reversal needed for products
+    }
+
+    public function canPermanentDelete(Model $record): void
+    {
+        // Admin-only gate already applied in controller
     }
 }

@@ -5,7 +5,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { getUnit, convert } from '@/lib/units'
+import { getMeasurementOptions } from '@/lib/measurement-options'
+import { resolveUnitDisplay, formatWithUnit } from '@/lib/product-unit-display'
 
 export interface MedicineDosage {
   productId: string
@@ -52,38 +53,6 @@ interface BackendSellingUnit {
   unit_id: string
   product_unit_id?: number | null
   packaging_id?: number | null
-}
-
-// ── Custom measurement options using unit conversion ──
-function getCustomMeasurementOptions(baseUnitId: string): { id: string; label: string; factor: number }[] {
-  const unit = getUnit(baseUnitId)
-  if (!unit) return []
-  const opts: { id: string; label: string; factor: number }[] = []
-  if (unit.measurementType === 'weight') {
-    if (convert(1, 'g', baseUnitId) !== null) {
-      opts.push({ id: '__custom_gram', label: 'Gram (g)', factor: convert(1, 'g', baseUnitId) ?? 1 })
-    }
-    if (convert(1, 'kg', baseUnitId) !== null) {
-      opts.push({ id: '__custom_kg', label: 'Kilogram (kg)', factor: convert(1, 'kg', baseUnitId) ?? 1000 })
-    }
-  }
-  if (unit.measurementType === 'volume') {
-    if (convert(1, 'ml', baseUnitId) !== null) {
-      opts.push({ id: '__custom_ml', label: 'Millilitre (ml)', factor: convert(1, 'ml', baseUnitId) ?? 1 })
-    }
-    if (convert(1, 'liter', baseUnitId) !== null) {
-      opts.push({ id: '__custom_liter', label: 'Litre (L)', factor: convert(1, 'liter', baseUnitId) ?? 1000 })
-    }
-  }
-  if (unit.measurementType === 'length') {
-    if (convert(1, 'cm', baseUnitId) !== null) {
-      opts.push({ id: '__custom_cm', label: 'Per cm', factor: convert(1, 'cm', baseUnitId) ?? 0.01 })
-    }
-    if (convert(1, 'meter', baseUnitId) !== null) {
-      opts.push({ id: '__custom_meter', label: 'Per Meter', factor: convert(1, 'meter', baseUnitId) ?? 100 })
-    }
-  }
-  return opts
 }
 
 export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, editEntry, products: serverProducts }: AddMedicineDialogProps) {
@@ -258,7 +227,7 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
                 // for custom measurement options it's the option ID
                 const sus = working.product.selling_units || working.product.sellingUnits || []
                 const isRegular = sus.some((u: any) => u.name === working.packagingName)
-                const customOpts = getCustomMeasurementOptions(working.product.base_unit_id)
+                const customOpts = getMeasurementOptions(working.product.base_unit_id)
                 const isCustom = customOpts.some((o: any) => o.label === working.packagingName)
                 const selectValue = isCustom
                   ? customOpts.find((o: any) => o.label === working.packagingName)?.id || working.packagingName
@@ -278,7 +247,7 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
                   }
                   // Custom measurement option
                   if (val.startsWith('__custom_')) {
-                    const customOpts = getCustomMeasurementOptions(product.base_unit_id)
+                    const customOpts = getMeasurementOptions(product.base_unit_id)
                     const opt = customOpts.find((o: any) => o.id === val)
                     if (!opt) return
                     const pricePerBase = working.unitPrice > 0
@@ -310,7 +279,7 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
                   ))}
                 </optgroup>
                 {(() => {
-                  const customOpts = getCustomMeasurementOptions(working.product.base_unit_id)
+                  const customOpts = getMeasurementOptions(working.product.base_unit_id)
                   return customOpts.length > 0 ? (
                     <optgroup label="Custom amount">
                       {customOpts.map((opt: { id: string; label: string }) => (
@@ -375,12 +344,12 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
                   <Plus className="size-4" />
                 </button>
                 <span className="text-xs text-muted-foreground">
-                  × {working.packagingName} = {working.baseQuantity} base units
+                  × {working.packagingName} = {formatWithUnit(working.baseQuantity, resolveUnitDisplay(working.product.base_unit_id))}
                 </span>
               </div>
               <p className="text-[10px] text-muted-foreground/70">
                 ({formatCurrency(working.unitPrice || 0)} × {qtyInput || 0} = {formatCurrency(working.total || 0)})
-                · {working.baseQuantity > 0 ? working.baseQuantity : '0'} {getUnit(working.product.base_unit_id)?.name || working.product.base_unit_id} deducted from stock
+                · {formatWithUnit(working.baseQuantity, resolveUnitDisplay(working.product.base_unit_id))} deducted from stock
               </p>
             </div>
 

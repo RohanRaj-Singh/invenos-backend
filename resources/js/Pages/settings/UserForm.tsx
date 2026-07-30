@@ -73,7 +73,7 @@ export default function UserFormPage() {
     <SettingsLayout>
       <div className="p-4 sm:p-6 lg:p-8 max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
-          <button onClick={() => router.visit('/settings/users')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={() => router.visit('/settings/users')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[36px]">
             <ArrowLeft className="size-4" /> Back to Users
           </button>
         </div>
@@ -143,7 +143,7 @@ export default function UserFormPage() {
                       <h4 className="text-sm font-semibold">{group.label}</h4>
                       <div className="space-y-1.5">
                         {group.actions.map((a) => (
-                          <label key={a.action} className="flex items-center justify-between text-xs py-1 cursor-pointer hover:bg-muted/30 rounded px-1 -mx-1 transition-colors">
+                          <label key={a.action} className="flex items-center justify-between text-xs min-h-[36px] py-1.5 cursor-pointer hover:bg-muted/30 rounded px-2 -mx-1 transition-colors">
                             <span>{a.label}</span>
                             <input
                               type="checkbox"
@@ -168,9 +168,9 @@ export default function UserFormPage() {
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-3">
-          <button onClick={() => router.visit('/settings/users')} className="px-4 py-2 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors">Cancel</button>
-          <button onClick={handleSave} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3">
+          <button onClick={() => router.visit('/settings/users')} className="px-4 py-2.5 text-sm font-medium rounded-lg border border-border hover:bg-muted transition-colors">Cancel</button>
+          <button onClick={handleSave} className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-lg bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors">
             <Save className="size-4" /> {isNew ? 'Create User' : 'Save Changes'}
           </button>
         </div>

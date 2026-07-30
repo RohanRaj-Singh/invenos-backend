@@ -6,6 +6,7 @@ use App\Domains\Sales\DTOs\CreateSaleData;
 use App\Domains\Sales\Services\SaleService;
 use App\Domains\Settings\Services\SettingService;
 use App\Http\Requests\Sales\CreateSaleRequest;
+use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -14,6 +15,7 @@ class SaleController extends Controller
 {
     public function __construct(
         private readonly SaleService $saleService,
+        private readonly RecordLifecycleService $lifecycle,
     ) {}
 
     public function index(): Response
@@ -21,11 +23,15 @@ class SaleController extends Controller
         $search = request('search', '');
         $customerId = request('customer_id') ? (int) request('customer_id') : null;
         $paymentStatus = request('payment_status', '');
+        $dateFrom = request('date_from', '');
+        $dateTo = request('date_to', '');
 
         $sales = $this->saleService->search(
             query: $search,
             customerId: $customerId,
             paymentStatus: $paymentStatus,
+            dateFrom: $dateFrom,
+            dateTo: $dateTo,
             perPage: 25,
         );
 
@@ -37,7 +43,7 @@ class SaleController extends Controller
                 'per_page' => $sales->perPage(),
                 'total' => $sales->total(),
             ],
-            'filters' => ['search' => $search, 'customer_id' => $customerId, 'payment_status' => $paymentStatus],
+            'filters' => ['search' => $search, 'customer_id' => $customerId, 'payment_status' => $paymentStatus, 'date_from' => $dateFrom, 'date_to' => $dateTo],
         ]);
     }
 
@@ -83,8 +89,17 @@ class SaleController extends Controller
 
     public function destroy(int $id): RedirectResponse
     {
-        $this->saleService->delete($id);
-        return redirect()->route('sales.index')
-            ->with('success', 'Sale deleted.');
+        $this->authorize('lifecycle.delete-sales');
+
+        $sale = \App\Models\Sale::findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->delete($sale, $reason, auth()->user());
+            return redirect()->route('sales.index')
+                ->with('success', "Sale {$sale->invoice_number} deleted. Inventory reversed.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 }

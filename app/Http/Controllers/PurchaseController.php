@@ -6,6 +6,7 @@ use App\Domains\Purchasing\DTOs\CreatePurchaseData;
 use App\Domains\Purchasing\Services\PurchaseService;
 use App\Domains\Settings\Services\SettingService;
 use App\Http\Requests\Purchases\CreatePurchaseRequest;
+use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -14,6 +15,7 @@ class PurchaseController extends Controller
 {
     public function __construct(
         private readonly PurchaseService $purchaseService,
+        private readonly RecordLifecycleService $lifecycle,
     ) {}
 
     public function index(): Response
@@ -21,11 +23,15 @@ class PurchaseController extends Controller
         $search = request('search', '');
         $supplierId = request('supplier_id') ? (int) request('supplier_id') : null;
         $status = request('status', '');
+        $dateFrom = request('date_from', '');
+        $dateTo = request('date_to', '');
 
         $purchases = $this->purchaseService->search(
             query: $search,
             supplierId: $supplierId,
             status: $status,
+            dateFrom: $dateFrom,
+            dateTo: $dateTo,
             perPage: 25,
         );
 
@@ -37,7 +43,7 @@ class PurchaseController extends Controller
                 'per_page' => $purchases->perPage(),
                 'total' => $purchases->total(),
             ],
-            'filters' => ['search' => $search, 'supplier_id' => $supplierId, 'status' => $status],
+            'filters' => ['search' => $search, 'supplier_id' => $supplierId, 'status' => $status, 'date_from' => $dateFrom, 'date_to' => $dateTo],
         ]);
     }
 
@@ -86,8 +92,17 @@ class PurchaseController extends Controller
 
     public function destroy(int $id): RedirectResponse
     {
-        $this->purchaseService->delete($id);
-        return redirect()->route('purchases.index')
-            ->with('success', 'Purchase deleted.');
+        $this->authorize('lifecycle.delete-purchases');
+
+        $purchase = \App\Models\PurchaseBill::findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->delete($purchase, $reason, auth()->user());
+            return redirect()->route('purchases.index')
+                ->with('success', "Purchase {$purchase->invoice_ref} deleted. Inventory reversed.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 }

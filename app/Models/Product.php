@@ -35,6 +35,7 @@ class Product extends Model
     public function sellingUnits() { return $this->hasMany(SellingUnit::class); }
     public function packaging() { return $this->hasMany(ProductPackaging::class); }
     public function inventoryTransactions() { return $this->hasMany(InventoryTransaction::class); }
+    public function deletedBy() { return $this->belongsTo(\App\Models\User::class, 'deleted_by'); }
 
     /**
      * Resolved display name for the base unit.

@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { router, usePage } from '@inertiajs/react'
-import { ArrowLeft, Calendar, FileText, Pill, Clock, CalendarDays, RefreshCw, Package, Image as ImageIcon, ShoppingCart } from 'lucide-react'
+import { ArrowLeft, Calendar, FileText, Pill, Clock, CalendarDays, RefreshCw, Package, Image as ImageIcon, ShoppingCart, Trash2, RotateCcw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import ImageViewer from '@/components/ui/ImageViewer'
@@ -22,6 +24,40 @@ export default function VisitDetailPage() {
   const [viewerOpen, setViewerOpen] = useState(false)
   const [viewerImages, setViewerImages] = useState<{ id: number | string; url: string; name?: string }[]>([])
   const [viewerIndex, setViewerIndex] = useState(0)
+
+  // Lifecycle state
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleDelete = () => {
+    setIsDeleting(true)
+    router.delete(`/clinic/consultations/${c.id}`, {
+      data: { reason: deleteReason || 'Manual deletion' },
+      onSuccess: () => {
+        toast.success('Consultation deleted. Sale and inventory reversed.')
+        router.visit(`/clinic/patient/${c.patient_id}`)
+      },
+      onError: (err) => {
+        toast.error(Object.values(err).join(', '))
+        setIsDeleting(false)
+      },
+      onFinish: () => {
+        setDeleteConfirm(false)
+        setIsDeleting(false)
+      },
+    })
+  }
+
+  const handleRestore = () => {
+    router.post(`/clinic/consultations/${c.id}/restore`, {}, {
+      onSuccess: () => {
+        toast.success('Consultation restored.')
+        window.location.reload()
+      },
+      onError: (err) => toast.error(Object.values(err).join(', ')),
+    })
+  }
 
   const openViewer = (images: any[], startIndex: number) => {
     setViewerImages(images.map((img: any) => ({
@@ -76,15 +112,28 @@ export default function VisitDetailPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-6 pb-24">
       {/* ── Header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <button onClick={() => router.visit(`/clinic/patient/${c.patient_id}`)}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
           <ArrowLeft className="size-4" />
           <span>Back to {patientName}</span>
         </button>
-        <Badge className={cn('text-[11px] px-2.5 py-1 font-medium border', statusCfg.class)}>
-          {statusCfg.label}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {c.deleted_at ? (
+            <button onClick={handleRestore}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-primary bg-primary/5 hover:bg-primary/10 transition-colors">
+              <RotateCcw className="size-3.5" /> Restore
+            </button>
+          ) : (
+            <button onClick={() => setDeleteConfirm(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-500 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors">
+              <Trash2 className="size-3.5" /> Delete
+            </button>
+          )}
+          <Badge className={cn('text-[11px] px-2.5 py-1 font-medium border', statusCfg.class)}>
+            {statusCfg.label}
+          </Badge>
+        </div>
       </div>
 
       {/* ── Patient + Visit header card ── */}
@@ -313,6 +362,45 @@ export default function VisitDetailPage() {
           </Card>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirm} onOpenChange={setDeleteConfirm}>
+        <DialogContent className="sm:max-w-md gap-0 p-0">
+          <DialogHeader className="p-5 pb-0">
+            <DialogTitle className="text-base flex items-center gap-2 text-red-500">
+              <Trash2 className="size-5" />
+              Delete Consultation
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
+              This will <strong>soft-delete</strong> the consultation and all linked prescriptions. The associated
+              sale invoice <strong>{sale.invoice_number || c.id}</strong> will also be deleted via the
+              lifecycle system, which will:
+            </DialogDescription>
+            <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
+              <li>Add inventory back to stock</li>
+              <li>Reverse the customer balance impact</li>
+              <li>Record an audit log entry</li>
+              <li>Move the records to the Recycle Bin</li>
+            </ul>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Reason for deletion</label>
+              <input type="text" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="Duplicate entry, wrong diagnosis, etc."
+                className="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring transition-colors" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setDeleteConfirm(false); setDeleteReason('') }} className="flex-1">
+                Cancel
+              </Button>
+              <Button onClick={handleDelete} disabled={isDeleting} className="flex-1 gap-1.5 bg-red-600 hover:bg-red-700">
+                <Trash2 className="size-4" /> {isDeleting ? 'Deleting...' : 'Delete Consultation'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Fullscreen image viewer */}
       <ImageViewer

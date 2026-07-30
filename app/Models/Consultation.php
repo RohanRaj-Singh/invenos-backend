@@ -3,15 +3,19 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Consultation extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'patient_id', 'doctor_id', 'visit_date', 'type', 'diagnosis',
         'notes', 'consultation_fee', 'status', 'sale_id', 'created_by',
+        'delete_reason', 'deleted_by',
     ];
 
     protected $casts = [
@@ -37,5 +41,10 @@ class Consultation extends Model
     public function prescriptions(): HasMany
     {
         return $this->hasMany(Prescription::class);
+    }
+
+    public function deletedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
     }
 }

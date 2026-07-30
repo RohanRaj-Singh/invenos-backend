@@ -6,6 +6,9 @@ use App\Domains\Clinic\DTOs\StoreConsultationData;
 use App\Domains\Clinic\Services\ClinicService;
 use App\Domains\Clinic\Services\ConsultationService;
 use App\Domains\Products\Services\ProductService;
+use App\Models\Consultation;
+use App\Models\Prescription;
+use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,6 +20,7 @@ class ClinicController extends Controller
         private readonly ClinicService $clinicService,
         private readonly ConsultationService $consultationService,
         private readonly ProductService $productService,
+        private readonly RecordLifecycleService $lifecycle,
     ) {}
 
     /**
@@ -78,7 +82,16 @@ class ClinicController extends Controller
      */
     public function showVisit(int $id): Response
     {
-        $consultation = $this->consultationService->get($id);
+        $consultation = Consultation::withTrashed()->with([
+            'prescriptions' => fn($q) => $q->withTrashed(),
+            'prescriptions.items.saleItem.product',
+            'prescriptions.images',
+            'sale' => fn($q) => $q->withTrashed(),
+            'sale.items',
+            'patient',
+            'doctor',
+        ])->findOrFail($id);
+
         return Inertia::render('clinic/VisitDetail', [
             'consultation' => $consultation->toArray(),
         ]);
@@ -124,6 +137,84 @@ class ClinicController extends Controller
             return redirect()->back()->with('error', $e->getMessage());
         } catch (\Throwable $e) {
             return redirect()->back()->with('error', 'Failed to save visit: ' . $e->getMessage());
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    //  Lifecycle Operations
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Delete a consultation (soft-delete + reverse linked sale + inventory).
+     */
+    public function destroyConsultation(int $id): RedirectResponse
+    {
+        $this->authorize('lifecycle.delete-sales');
+
+        $consultation = Consultation::with(['sale.items.product', 'prescriptions.items'])->findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->delete($consultation, $reason, auth()->user());
+            return redirect()->route('clinic.patient', $consultation->patient_id)
+                ->with('success', "Consultation #{$consultation->id} deleted. Sale and inventory reversed.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Restore a deleted consultation (restore linked sale + re-apply inventory).
+     */
+    public function restoreConsultation(int $id): RedirectResponse
+    {
+        $this->authorize('lifecycle.restore-recycle-bin');
+
+        $consultation = Consultation::withTrashed()->with(['sale.items.product', 'prescriptions.items'])->findOrFail($id);
+
+        try {
+            $this->lifecycle->restore($consultation, auth()->user());
+            return redirect()->route('clinic.patient', $consultation->patient_id)
+                ->with('success', "Consultation #{$consultation->id} restored.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete a prescription (soft-delete only — no inventory impact).
+     */
+    public function destroyPrescription(int $id): RedirectResponse
+    {
+        $this->authorize('lifecycle.delete-sales');
+
+        $prescription = Prescription::findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->delete($prescription, $reason, auth()->user());
+            return redirect()->route('clinic.patient', $prescription->patient_id)
+                ->with('success', "Prescription #{$prescription->id} deleted.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Restore a deleted prescription.
+     */
+    public function restorePrescription(int $id): RedirectResponse
+    {
+        $this->authorize('lifecycle.restore-recycle-bin');
+
+        $prescription = Prescription::withTrashed()->findOrFail($id);
+
+        try {
+            $this->lifecycle->restore($prescription, auth()->user());
+            return redirect()->route('clinic.patient', $prescription->patient_id)
+                ->with('success', "Prescription #{$prescription->id} restored.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
         }
     }
 }

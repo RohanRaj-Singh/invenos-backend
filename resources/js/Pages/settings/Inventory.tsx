@@ -45,7 +45,7 @@ export default function InventorySettingsPage() {
             </SettingsRow>
             <SettingsRow label="Default Stock Unit" description="Primary unit for inventory tracking">
               <select value={draft.defaultStockUnit} onChange={(e) => setDraft({ ...draft, defaultStockUnit: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="piece">Piece</option>
                 <option value="kg">Kilogram</option>
                 <option value="g">Gram</option>
@@ -68,7 +68,7 @@ export default function InventorySettingsPage() {
             </SettingsRow>
             <SettingsRow label="Barcode Format" description="Default barcode symbology">
               <select value={draft.barcodeFormat} onChange={(e) => setDraft({ ...draft, barcodeFormat: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="CODE128">CODE128</option>
                 <option value="EAN13">EAN-13</option>
                 <option value="UPC">UPC</option>

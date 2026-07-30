@@ -2,11 +2,17 @@
 
 namespace App\Providers;
 
+use App\Models\Consultation;
 use App\Models\Contact;
+use App\Models\Prescription;
 use App\Models\Product;
+use App\Models\PurchaseBill;
 use App\Models\Sale;
+use App\Policies\Lifecycle\ConsultationPolicy;
 use App\Policies\Lifecycle\ContactPolicy;
+use App\Policies\Lifecycle\PrescriptionPolicy;
 use App\Policies\Lifecycle\ProductPolicy;
+use App\Policies\Lifecycle\PurchasePolicy;
 use App\Policies\Lifecycle\SalePolicy;
 use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Support\ServiceProvider;
@@ -27,5 +33,8 @@ class LifecycleServiceProvider extends ServiceProvider
         $lifecycle->register(Product::class, ProductPolicy::class);
         $lifecycle->register(Contact::class, ContactPolicy::class);
         $lifecycle->register(Sale::class, SalePolicy::class);
+        $lifecycle->register(PurchaseBill::class, PurchasePolicy::class);
+        $lifecycle->register(Consultation::class, ConsultationPolicy::class);
+        $lifecycle->register(Prescription::class, PrescriptionPolicy::class);
     }
 }

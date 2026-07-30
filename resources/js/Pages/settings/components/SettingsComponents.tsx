@@ -17,49 +17,44 @@ export function SettingsLayout({ children }: { children: React.ReactNode }) {
   const { url } = usePage()
 
   return (
-    <div className="flex h-full">
-      {/* Side nav */}
-      <div className="hidden md:flex flex-col w-48 shrink-0 border-r border-border p-3 space-y-0.5">
-        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 py-2">Settings</div>
-        {SETTINGS_SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => router.visit(s.href)}
-            className={cn(
-              'text-left px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-              url === s.href
-                ? 'bg-foreground text-background'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-            )}
-          >
-            {s.label}
-          </button>
-        ))}
+    <div>
+      {/* Mobile row - visible below 768px */}
+      <div className="md:hidden">
+        <div className="border-b border-border bg-background">
+          <div className="overflow-x-auto no-scrollbar">
+            <div className="flex gap-1 px-4 py-2 min-w-max">
+              {SETTINGS_SECTIONS.map((s) => (
+                <button key={s.id} onClick={() => router.visit(s.href)}
+                  className={cn(
+                    'whitespace-nowrap px-3 py-2 rounded-lg text-xs font-medium transition-colors min-h-[36px]',
+                    url === s.href ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground border border-border',
+                  )}>
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div>
+          {children}
+        </div>
       </div>
 
-      {/* Mobile tabs */}
-      <div className="md:hidden overflow-x-auto border-b border-border">
-        <div className="flex gap-1 px-4 py-2">
+      {/* Desktop row - visible above 768px */}
+      <div className="hidden md:flex md:flex-row" style={{height: 'calc(100vh - 57px)'}}>
+        <div className="flex flex-col w-48 shrink-0 border-r border-border p-3 space-y-0.5">
+          <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 py-2">Settings</div>
           {SETTINGS_SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => router.visit(s.href)}
+            <button key={s.id} onClick={() => router.visit(s.href)}
               className={cn(
-                'whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-                url === s.href
-                  ? 'bg-foreground text-background'
-                  : 'text-muted-foreground hover:text-foreground border border-border',
-              )}
-            >
+                'text-left px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                url === s.href ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+              )}>
               {s.label}
             </button>
           ))}
         </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        {children}
+        <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
     </div>
   )
@@ -87,12 +82,12 @@ export function SettingsCard({ children }: { children: React.ReactNode }) {
 
 export function SettingsRow({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4 py-2">
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-foreground">{label}</div>
         {description && <div className="text-xs text-muted-foreground mt-0.5">{description}</div>}
       </div>
-      <div className="shrink-0">{children}</div>
+      <div className="shrink-0 w-full sm:w-auto">{children}</div>
     </div>
   )
 }
@@ -101,11 +96,8 @@ export function SettingsInput({ value, onChange, placeholder, type = 'text' }: {
   value: string; onChange: (v: string) => void; placeholder?: string; type?: string
 }) {
   return (
-    <input
-      type={type} value={value} onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring transition-colors"
-    />
+    <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+      className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring transition-colors" />
   )
 }
 
@@ -113,10 +105,8 @@ export function SettingsSelect({ value, onChange, options }: {
   value: string; onChange: (v: string) => void; options: { value: string; label: string }[]
 }) {
   return (
-    <select
-      value={value} onChange={(e) => onChange(e.target.value)}
-      className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring transition-colors"
-    >
+    <select value={value} onChange={(e) => onChange(e.target.value)}
+      className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring transition-colors">
       {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>
   )
@@ -124,18 +114,9 @@ export function SettingsSelect({ value, onChange, options }: {
 
 export function SettingsToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
-    <button
-      type="button"
-      onClick={() => onChange(!enabled)}
-      className={cn(
-        'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer',
-        enabled ? 'bg-primary' : 'bg-muted-foreground/30',
-      )}
-    >
-      <span className={cn(
-        'pointer-events-none inline-block size-4 rounded-full bg-white shadow transform ring-0 transition-transform',
-        enabled ? 'translate-x-4' : 'translate-x-0',
-      )} />
+    <button type="button" onClick={() => onChange(!enabled)}
+      className={cn('relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer', enabled ? 'bg-primary' : 'bg-muted-foreground/30')}>
+      <span className={cn('pointer-events-none inline-block size-4 rounded-full bg-white shadow transform ring-0 transition-transform', enabled ? 'translate-x-4' : 'translate-x-0')} />
     </button>
   )
 }
@@ -143,11 +124,8 @@ export function SettingsToggle({ enabled, onChange }: { enabled: boolean; onChan
 export function SettingsSaveBar({ onSave, hasChanges }: { onSave: () => void; hasChanges: boolean }) {
   return (
     <div className="sticky bottom-0 bg-card border-t border-border px-5 py-3 flex justify-end gap-3">
-      <button
-        onClick={onSave}
-        disabled={!hasChanges}
-        className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-      >
+      <button onClick={onSave} disabled={!hasChanges}
+        className="px-4 py-2 text-sm font-medium rounded-lg bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
         Save Changes
       </button>
     </div>

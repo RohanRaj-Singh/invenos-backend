@@ -6,6 +6,7 @@ use App\Domains\Products\Services\ProductUnitService;
 use App\Domains\Sales\DTOs\CreateSaleData;
 use App\Models\Contact;
 use App\Domains\Inventory\Services\InventoryService;
+use App\Models\FinancialTransaction;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
@@ -19,7 +20,7 @@ class SaleService
         private readonly ProductUnitService $productUnitService,
     ) {}
 
-    public function search(string $query = '', ?int $customerId = null, ?string $paymentStatus = null, int $perPage = 25): LengthAwarePaginator
+    public function search(string $query = '', ?int $customerId = null, ?string $paymentStatus = null, string $dateFrom = '', string $dateTo = '', int $perPage = 25): LengthAwarePaginator
     {
         $q = Sale::with('customer')->withCount('items')->where('invoice_number', 'not like', 'RET-%');
 
@@ -36,6 +37,14 @@ class SaleService
 
         if ($paymentStatus && $paymentStatus !== 'all') {
             $q->where('payment_status', $paymentStatus);
+        }
+
+        if ($dateFrom) {
+            $q->whereDate('date', '>=', $dateFrom);
+        }
+
+        if ($dateTo) {
+            $q->whereDate('date', '<=', $dateTo);
         }
 
         return $q->orderBy('created_at', 'desc')->paginate($perPage);
@@ -112,11 +121,24 @@ class SaleService
                 $costPrice = $product->last_purchase_cost ?? $product->default_purchase_cost ?? 0;
                 $cogs = $costPrice * $baseQty;
 
+                // Resolve the display unit name through ProductUnitService so raw
+                // unit_ids like 'kg' become 'Kilogram (kg)', and display names pass through.
+                $displayUnitName = $itemData->packagingName;
+                if (!$displayUnitName && $itemData->sellingUnitId) {
+                    $su = \App\Models\SellingUnit::find($itemData->sellingUnitId);
+                    $displayUnitName = $su?->name;
+                }
+                if (!$displayUnitName) {
+                    $displayUnitName = $this->productUnitService->resolveDisplayUnit($product->base_unit_id);
+                } else {
+                    $displayUnitName = $this->productUnitService->resolveDisplayUnit($displayUnitName);
+                }
+
                 SaleItem::create([
                     'sale_id' => $sale->id,
                     'product_id' => $product->id,
                     'product_name' => $itemData->productName ?: $product->name,
-                    'packaging_name' => $itemData->packagingName ?? $this->productUnitService->resolveDisplayUnit($product->base_unit_id),
+                    'packaging_name' => $displayUnitName,
                     'packaging_quantity' => $itemData->packagingQuantity,
                     'base_unit_quantity' => $authoritativeBaseUnitQty,
                     'base_quantity' => $baseQty,
@@ -147,6 +169,24 @@ class SaleService
                 $customer->save();
             }
 
+            // Record financial transaction (mirrors PurchaseService behaviour).
+            // This feeds the Day Book cash position, Financial Overview, and Contact Ledger.
+            // Walk-in customers (no contact) are skipped since contact_id is NOT NULL.
+            if ($customer) {
+                FinancialTransaction::create([
+                    'contact_id' => $customer->id,
+                    'direction' => 'in',
+                    'type' => 'invoice',
+                    'date' => $data->date,
+                    'amount' => $grandTotal,
+                    'method' => $data->paymentMethod,
+                    'reference' => $data->invoiceNumber,
+                    'description' => "Sale: {$data->invoiceNumber}",
+                    'linked_sale_id' => $sale->id,
+                    'created_by' => $data->createdBy,
+                ]);
+            }
+
             return $sale->load('items', 'customer');
         });
     }
@@ -156,29 +196,19 @@ class SaleService
         return Sale::with('items', 'customer')->findOrFail($id);
     }
 
+    /**
+     * Deprecated — use RecordLifecycleService via SaleController::destroy().
+     * This method now delegates to the lifecycle path for consistency.
+     */
     public function delete(int $id): ?bool
     {
-        return DB::transaction(function () use ($id) {
-            $sale = Sale::with('items', 'customer')->findOrFail($id);
-
-            foreach ($sale->items as $item) {
-                $this->inventoryService->recordAdjustment(
-                    productId: $item->product_id,
-                    quantity: $item->base_quantity,
-                    reference: 'REV-' . $sale->invoice_number,
-                    notes: "Reversal of sale {$sale->invoice_number}",
-                    referenceType: 'sale',
-                    referenceId: $sale->id,
-                );
-            }
-
-            if ($sale->customer && $sale->grand_total > 0) {
-                $sale->customer->current_balance = max(0, ($sale->customer->current_balance ?? 0) - $sale->grand_total);
-                $sale->customer->save();
-            }
-
-            return $sale->delete();
-        });
+        $sale = Sale::findOrFail($id);
+        app(\App\Services\Lifecycle\RecordLifecycleService::class)->delete(
+            $sale,
+            request('reason', 'Deleted via service'),
+            \Illuminate\Support\Facades\Auth::user() ?? \App\Models\User::first(),
+        );
+        return true;
     }
 
     public function restore(int $id): Sale

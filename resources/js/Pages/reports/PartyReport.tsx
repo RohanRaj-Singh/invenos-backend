@@ -7,6 +7,7 @@ import { SummaryCards } from './components/SummaryCards'
 import { ReportTable, type ColumnDef } from './components/ReportTable'
 import { debitColumn, creditColumn } from './components/helpers'
 import { getPartyStatement, type PartyTransactionRow } from '@/data/reports-data'
+import { formatDate } from '@/lib/format'
 import { formatCurrency } from '@/data/dashboard'
 import { cn } from '@/lib/utils'
 
@@ -27,7 +28,7 @@ export default function PartyReport() {
   const totalCredit = rows.reduce((s, r) => s + r.credit, 0)
 
   const columns: ColumnDef<PartyTransactionRow>[] = [
-    { key: 'date', header: 'Date', render: (r) => r.date, sortable: true },
+    { key: 'date', header: 'Date', render: (r) => formatDate(r.date), sortable: true },
     { key: 'type', header: 'Type', render: (r) => <span className="font-medium">{r.type}</span>, sortable: true },
     { key: 'ref', header: 'Reference', render: (r) => <code className="text-[11px] font-mono bg-muted px-1 py-0.5 rounded">{r.ref}</code> },
     { key: 'description', header: 'Description', render: (r) => r.description },

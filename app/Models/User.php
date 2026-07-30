@@ -36,4 +36,9 @@ class User extends Authenticatable
     {
         return $query->where('active', true);
     }
+
+    public function auditLogs()
+    {
+        return $this->hasMany(AuditLog::class);
+    }
 }

@@ -1,5 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { TrendIndicator } from './TrendBadge'
 
 export interface SummaryCardDef {
   label: string
@@ -7,6 +8,12 @@ export interface SummaryCardDef {
   positive?: boolean
   negative?: boolean
   subtitle?: string
+  /** Optional trend comparison — shows ▲/▼ vs previous period */
+  trend?: {
+    current: number
+    previous: number
+    format?: 'currency' | 'number'
+  }
 }
 
 interface SummaryCardsProps {
@@ -35,7 +42,16 @@ export function SummaryCards({ cards, columns = 4 }: SummaryCardsProps) {
             )}>
               {card.value}
             </div>
-            {card.subtitle && <div className="text-xs text-muted-foreground mt-1">{card.subtitle}</div>}
+            {card.trend && (
+              <div className="mt-1.5">
+                <TrendIndicator
+                  current={card.trend.current}
+                  previous={card.trend.previous}
+                  format={card.trend.format}
+                />
+              </div>
+            )}
+            {card.subtitle && !card.trend && <div className="text-xs text-muted-foreground mt-1">{card.subtitle}</div>}
           </CardContent>
         </Card>
       ))}

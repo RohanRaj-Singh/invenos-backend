@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { router, usePage } from '@inertiajs/react'
-import { ArrowLeft, Search, RotateCcw, CheckCircle2, Package, X } from 'lucide-react'
+import { ArrowLeft, Search, RotateCcw, CheckCircle2, Package, X, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -75,6 +75,16 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
   const [receiptRef, setReceiptRef] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [highlighted, setHighlighted] = useState(0)
+  const [mobileOpenItems, setMobileOpenItems] = useState<Set<number>>(new Set())
+
+  const toggleMobileOpen = (idx: number) => {
+    setMobileOpenItems((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }
 
   const transactions = useMemo(() => {
     const list = isPurchase
@@ -224,7 +234,7 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
       <div className="px-5 py-3 border-b border-border bg-card shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <button onClick={() => router.visit(backPath)} className="flex items-center justify-center size-9 rounded-lg hover:bg-muted transition-colors">
+            <button onClick={() => backPath ? router.visit(backPath) : window.history.back()} className="flex items-center justify-center size-10 rounded-lg hover:bg-muted transition-colors active:scale-95">
               <ArrowLeft className="size-5 text-muted-foreground" />
             </button>
             <div>
@@ -319,14 +329,14 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
       {loaded && originalTx && (
         <>
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-            <div className="flex items-center gap-3 text-sm">
-              <Badge variant="outline" className="text-xs">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <Badge variant="outline" className="text-xs shrink-0">
                 {isPurchase ? (originalTx as PurchaseBill).invoiceRef : (originalTx as Sale).invoiceNumber}
               </Badge>
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground text-xs sm:text-sm truncate max-w-[180px] sm:max-w-none">
                 {isPurchase ? (originalTx as PurchaseBill).supplierName : (originalTx as Sale).customerName || 'Walk-in Customer'}
               </span>
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground text-xs sm:text-sm">
                 {(isPurchase ? (originalTx as PurchaseBill).date : (originalTx as Sale).date)}
               </span>
             </div>
@@ -334,86 +344,136 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
             {returnItems.length === 0 ? (
               <div className="text-center py-12 text-sm text-muted-foreground">No items in this invoice.</div>
             ) : (
-              <div className="rounded-xl border border-border overflow-hidden">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/30">
-                      <Th className="w-10">#</Th>
-                      <Th>Item</Th>
-                      <Th className="w-20 text-center">Orig Qty</Th>
-                      <Th className="w-20 text-center">Return</Th>
-                      <Th className="w-24">Reason</Th>
-                      <Th className="w-24">Condition</Th>
-                      <Th className="w-24 text-right">Refund</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {returnItems.map((item, idx) => (
-                      <tr key={item.originalLineId} className={cn('border-b border-border', item.selected && 'bg-primary/5')}>
-                        <Td className="w-10 text-center">
-                          <input
-                            type="checkbox"
-                            checked={item.selected}
-                            onChange={() => toggleItem(idx)}
-                            className="size-4 rounded border-input"
-                          />
-                        </Td>
-                        <Td className="min-w-0">
-                          <div className="text-sm font-medium text-foreground truncate max-w-[200px]">{item.productName}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {item.unitName} · {formatCurrency(item.originalPrice)} each
-                          </div>
-                        </Td>
-                        <Td className="w-20 text-center">
-                          <span className="text-sm tabular-nums text-muted-foreground">{item.originalQty}</span>
-                        </Td>
-                        <Td className="w-20 text-center">
-                          <input
-                            type="number"
-                            value={item.returnQty || ''}
-                            onChange={(e) => setReturnQty(idx, parseInt(e.target.value) || 0)}
-                            disabled={!item.selected}
-                            className="w-16 h-7 px-1 rounded border border-input bg-background text-sm text-center outline-none focus:border-ring tabular-nums disabled:opacity-30"
-                            min={0}
-                            max={item.maxReturnable}
-                          />
-                        </Td>
-                        <Td>
-                          <select
-                            value={item.reason}
-                            onChange={(e) => setReason(idx, e.target.value as ReturnReason)}
-                            disabled={!item.selected}
-                            className="w-full h-7 px-1 rounded border border-input bg-background text-[11px] outline-none focus:border-ring disabled:opacity-30"
-                          >
-                            {RETURN_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                          </select>
-                        </Td>
-                        <Td>
-                          <select
-                            value={item.condition}
-                            onChange={(e) => setCondition(idx, e.target.value as ItemCondition)}
-                            disabled={!item.selected}
-                            className="w-full h-7 px-1 rounded border border-input bg-background text-[11px] outline-none focus:border-ring disabled:opacity-30"
-                          >
-                            {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-                          </select>
-                        </Td>
-                        <Td className="w-24 text-right">
-                          <span className={cn('text-sm font-semibold tabular-nums', item.selected && item.returnQty > 0 ? 'text-foreground' : 'text-muted-foreground')}>
-                            {item.selected && item.returnQty > 0 ? formatCurrency(item.originalPrice * item.returnQty) : '—'}
-                          </span>
-                        </Td>
+              <>
+                {/* ── Desktop table ── */}
+                <div className="hidden md:block rounded-xl border border-border overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/30">
+                        <Th className="w-10">#</Th>
+                        <Th>Item</Th>
+                        <Th className="w-20 text-center">Orig Qty</Th>
+                        <Th className="w-20 text-center">Return</Th>
+                        <Th className="w-32">Reason</Th>
+                        <Th className="w-28">Condition</Th>
+                        <Th className="w-24 text-right">Refund</Th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {returnItems.map((item, idx) => (
+                        <tr key={item.originalLineId} className={cn('border-b border-border', item.selected && 'bg-primary/5')}>
+                          <Td className="w-10 text-center">
+                            <input type="checkbox" checked={item.selected} onChange={() => toggleItem(idx)} className="size-4 rounded border-input" />
+                          </Td>
+                          <Td className="min-w-0">
+                            <div className="text-sm font-medium text-foreground truncate max-w-[200px]">{item.productName}</div>
+                            <div className="text-[10px] text-muted-foreground">{item.unitName} · {formatCurrency(item.originalPrice)} each</div>
+                          </Td>
+                          <Td className="w-20 text-center"><span className="text-sm tabular-nums text-muted-foreground">{item.originalQty}</span></Td>
+                          <Td className="w-20 text-center">
+                            <input type="number" value={item.returnQty || ''} onChange={(e) => setReturnQty(idx, parseInt(e.target.value) || 0)} disabled={!item.selected}
+                              className="w-16 h-7 px-1 rounded border border-input bg-background text-sm text-center outline-none focus:border-ring tabular-nums disabled:opacity-30" min={0} max={item.maxReturnable} />
+                          </Td>
+                          <Td>
+                            <select value={item.reason} onChange={(e) => setReason(idx, e.target.value as ReturnReason)} disabled={!item.selected}
+                              className="w-full h-8 px-2 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/20 disabled:opacity-30 cursor-pointer disabled:cursor-default">
+                              {RETURN_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                            </select>
+                          </Td>
+                          <Td>
+                            <select value={item.condition} onChange={(e) => setCondition(idx, e.target.value as ItemCondition)} disabled={!item.selected}
+                              className="w-full h-8 px-2 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring focus:ring-1 focus:ring-ring/20 disabled:opacity-30 cursor-pointer disabled:cursor-default">
+                              {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                            </select>
+                          </Td>
+                          <Td className="w-24 text-right">
+                            <span className={cn('text-sm font-semibold tabular-nums', item.selected && item.returnQty > 0 ? 'text-foreground' : 'text-muted-foreground')}>
+                              {item.selected && item.returnQty > 0 ? formatCurrency(item.originalPrice * item.returnQty) : '—'}
+                            </span>
+                          </Td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ── Mobile cards ── */}
+                <div className="md:hidden space-y-2">
+                  {returnItems.map((item, idx) => {
+                    const isOpen = mobileOpenItems.has(idx)
+                    return (
+                      <div key={item.originalLineId} className={cn('rounded-xl border border-border overflow-hidden transition-colors', item.selected && 'border-primary/30 bg-primary/[0.02]')}>
+                        {/* Collapsed row */}
+                        <div className="flex items-center gap-3 p-3">
+                          <input type="checkbox" checked={item.selected} onChange={() => toggleItem(idx)} className="size-4 rounded border-input shrink-0" />
+                          <div className="flex-1 min-w-0" onClick={() => item.selected && toggleMobileOpen(idx)}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-sm font-medium text-foreground truncate">{item.productName}</span>
+                              <span className="text-xs font-semibold tabular-nums shrink-0">
+                                {item.selected && item.returnQty > 0 ? formatCurrency(item.originalPrice * item.returnQty) : '—'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-0.5">
+                              <span>{item.unitName} · Rs.{item.originalPrice}</span>
+                              <span>·</span>
+                              <span>Orig: {item.originalQty}</span>
+                              {item.selected && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-primary font-medium">Return: {item.returnQty}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {item.selected && (
+                            <button onClick={() => toggleMobileOpen(idx)} className="flex items-center justify-center size-6 rounded-md hover:bg-muted text-muted-foreground shrink-0">
+                              {isOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Expanded fields */}
+                        {isOpen && item.selected && (
+                          <div className="px-3 pb-3 pt-1 border-t border-border space-y-2.5">
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1">
+                                <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Return Qty</label>
+                                <input type="number" value={item.returnQty || ''} onChange={(e) => setReturnQty(idx, parseInt(e.target.value) || 0)}
+                                  className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring tabular-nums" min={0} max={item.maxReturnable} />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Reason</label>
+                                <select value={item.reason} onChange={(e) => setReason(idx, e.target.value as ReturnReason)}
+                                  className="w-full h-9 px-2 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                                  {RETURN_REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1">
+                                <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Condition</label>
+                                <select value={item.condition} onChange={(e) => setCondition(idx, e.target.value as ItemCondition)}
+                                  className="w-full h-9 px-2 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                                  {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex-1 pt-5">
+                                <div className="text-sm font-semibold text-foreground tabular-nums">{formatCurrency(item.originalPrice * item.returnQty)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
             )}
 
             {/* Refund summary */}
             {selectedItems.length > 0 && (
               <div className="flex justify-end">
-                <div className="w-72 space-y-2">
+                <div className="w-full md:w-72 space-y-2">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Items returning</span>
                     <span className="font-semibold">{selectedItems.length}</span>
@@ -427,7 +487,7 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
                     <select
                       value={refundMethod}
                       onChange={(e) => setRefundMethod(e.target.value)}
-                      className="h-7 px-2 rounded border border-input bg-background text-xs outline-none focus:border-ring"
+                      className="h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring flex-1 md:flex-none"
                     >
                       <option value="cash">Cash</option>
                       <option value="card">Card</option>
@@ -446,12 +506,12 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
           {/* Action bar */}
           {loaded && (
             <div className="border-t border-border bg-card px-5 py-3 shrink-0">
-              <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setLoaded(false); setOriginalTx(null); setSearchRef('') }}>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:justify-between">
+                <Button variant="outline" size="sm" className="gap-1.5 justify-center sm:justify-start" onClick={() => { setLoaded(false); setOriginalTx(null); setSearchRef('') }}>
                   <RotateCcw className="size-3.5" /> Change Invoice
                 </Button>
                 <Button
-                  size="sm"
+                  size="default"
                   className="gap-1.5 shadow-sm"
                   disabled={selectedItems.length === 0}
                   onClick={() => setShowConfirm(true)}

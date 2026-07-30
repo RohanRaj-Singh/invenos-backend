@@ -42,7 +42,7 @@ export default function SalesSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Invoice Number Format" description="Format pattern for invoice numbers">
               <select value={draft.invoiceNumberFormat} onChange={(e) => setDraft({ ...draft, invoiceNumberFormat: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="{PREFIX}{NUMBER}">INV-00001</option>
                 <option value="{PREFIX}{DATE}-{NUMBER}">INV-20260723-001</option>
                 <option value="{YEAR}{NUMBER}">202600001</option>

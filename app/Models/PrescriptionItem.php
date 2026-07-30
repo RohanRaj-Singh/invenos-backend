@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PrescriptionItem extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'prescription_id', 'sale_item_id',
         'dosage', 'frequency', 'duration', 'instructions', 'notes',

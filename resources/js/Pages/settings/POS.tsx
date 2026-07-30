@@ -42,7 +42,7 @@ export default function POSSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Default Payment Method">
               <select value={draft.defaultPaymentMethod} onChange={(e) => setDraft({ ...draft, defaultPaymentMethod: e.target.value as any })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="cash">Cash</option>
                 <option value="card">Card</option>
                 <option value="transfer">Bank Transfer</option>
@@ -52,7 +52,7 @@ export default function POSSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Receipt Size">
               <select value={draft.receiptSize} onChange={(e) => setDraft({ ...draft, receiptSize: e.target.value as any })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="58mm">58mm (Thermal)</option>
                 <option value="80mm">80mm (Thermal)</option>
                 <option value="a4">A4</option>

@@ -180,8 +180,8 @@ export default function PurchaseBillPage() {
       purchaseCost: u.purchase_cost ?? null,
     })),
     purchaseConfig: {
-      name: 'Pack',
-      quantity: 1,
+      name: p.selling_units?.[0]?.name || 'Pack',
+      quantity: p.selling_units?.[0]?.quantity || 1,
       cost: p.default_purchase_cost || p.last_purchase_cost || 0,
     },
   }))

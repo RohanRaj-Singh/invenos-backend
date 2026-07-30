@@ -662,6 +662,8 @@ export default function SaleBillPage() {
         product_id: i.productId,
         quantity: i.packagingQuantity,
         packaging_quantity: i.packagingQuantity,
+        packaging_name: i.packagingName,
+        selling_unit_id: i.sellingUnitId ? Number(i.sellingUnitId) : null,
         base_unit_quantity: i.baseUnitQuantity,
         unit_price: i.unitPrice,
         total: i.total,

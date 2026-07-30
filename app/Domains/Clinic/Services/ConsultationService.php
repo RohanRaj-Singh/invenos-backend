@@ -156,10 +156,11 @@ class ConsultationService
 
     public function patientConsultations(int $patientId, int $limit = 20): array
     {
-        return Consultation::with([
-                'prescriptions.items.saleItem.product',
-                'prescriptions.images',
-                'sale',
+        return Consultation::withTrashed()
+            ->with([
+                'prescriptions' => fn($q) => $q->withTrashed(),
+                'sale' => fn($q) => $q->withTrashed(),
+                'sale.items',
             ])
             ->where('patient_id', $patientId)
             ->orderBy('created_at', 'desc')
@@ -170,7 +171,9 @@ class ConsultationService
 
     public function patientPrescriptions(int $patientId, int $limit = 20): array
     {
-        return Prescription::with([
+        return Prescription::withTrashed()
+            ->with([
+                'items' => fn($q) => $q->withTrashed(),
                 'items.saleItem.product',
                 'images',
                 'consultation',

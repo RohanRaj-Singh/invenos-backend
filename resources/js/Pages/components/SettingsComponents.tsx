@@ -17,7 +17,7 @@ export function SettingsLayout({ children }: { children: React.ReactNode }) {
   const { url } = usePage()
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-col md:flex-row h-full">
       {/* Side nav */}
       <div className="hidden md:flex flex-col w-48 shrink-0 border-r border-border p-3 space-y-0.5">
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 py-2">Settings</div>

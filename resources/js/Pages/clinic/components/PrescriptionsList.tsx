@@ -1,7 +1,11 @@
 import { useState } from 'react'
-import { Pill, Clock, CalendarDays, RefreshCw, FileText, Package, Image as ImageIcon } from 'lucide-react'
+import { router } from '@inertiajs/react'
+import { Pill, Clock, CalendarDays, RefreshCw, FileText, Package, Image as ImageIcon, Trash2, RotateCcw } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import ImageViewer from '@/components/ui/ImageViewer'
 
@@ -22,6 +26,35 @@ export default function PrescriptionsList({ prescriptions }: PrescriptionsListPr
     })))
     setViewerIndex(startIndex)
     setViewerOpen(true)
+  }
+
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleDelete = () => {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    router.delete(`/clinic/prescriptions/${deleteTarget.id}`, {
+      data: { reason: deleteReason || 'Manual deletion' },
+      onSuccess: () => {
+        toast.success('Prescription deleted.')
+        setDeleteTarget(null)
+        setDeleteReason('')
+      },
+      onError: (err) => toast.error(Object.values(err).join(', ')),
+      onFinish: () => setIsDeleting(false),
+    })
+  }
+
+  const handleRestore = (rx: any) => {
+    router.post(`/clinic/prescriptions/${rx.id}/restore`, {}, {
+      onSuccess: () => {
+        toast.success('Prescription restored.')
+        setDeleteTarget(null)
+      },
+      onError: (err) => toast.error(Object.values(err).join(', ')),
+    })
   }
 
   return (
@@ -64,6 +97,19 @@ export default function PrescriptionsList({ prescriptions }: PrescriptionsListPr
                       Refillable
                     </Badge>
                   )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {rx.deleted_at ? (
+                      <button onClick={() => handleRestore(rx)}
+                        className="p-1.5 rounded-lg text-primary hover:bg-primary/5 transition-colors" title="Restore">
+                        <RotateCcw className="size-3.5" />
+                      </button>
+                    ) : (
+                      <button onClick={() => { setDeleteTarget(rx); setDeleteReason('') }}
+                        className="p-1.5 rounded-lg text-red-400 hover:text-red-500 hover:bg-red-50 transition-colors" title="Delete">
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Items list */}
@@ -151,6 +197,38 @@ export default function PrescriptionsList({ prescriptions }: PrescriptionsListPr
           No prescriptions found.
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }}>
+        <DialogContent className="sm:max-w-md gap-0 p-0">
+          <DialogHeader className="p-5 pb-0">
+            <DialogTitle className="text-base flex items-center gap-2 text-red-500">
+              <Trash2 className="size-5" />
+              Delete Prescription
+            </DialogTitle>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
+              This will <strong>soft-delete</strong> the prescription. No inventory or balance will be impacted
+              — linked sale items remain unchanged. You can restore it from the Recycle Bin later.
+            </DialogDescription>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Reason for deletion</label>
+              <input type="text" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="Incorrect prescription, etc."
+                className="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring transition-colors" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteReason('') }} className="flex-1">
+                Cancel
+              </Button>
+              <Button onClick={handleDelete} disabled={isDeleting} className="flex-1 gap-1.5 bg-red-600 hover:bg-red-700">
+                <Trash2 className="size-4" /> {isDeleting ? 'Deleting...' : 'Delete Prescription'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Fullscreen image viewer */}
       <ImageViewer

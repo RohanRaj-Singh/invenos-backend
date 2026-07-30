@@ -146,16 +146,34 @@ class ProductUnitService
     /**
      * Resolve purchase unit information for a product.
      *
+     * Returns the selling unit that has a purchase cost if one exists,
+     * otherwise falls back to the base unit display.
+     *
      * @param Product $product
-     * @return array{ name: string, unit_id: string, display_name: string }
+     * @return array{ name: string, unit_id: string, display_name: string, quantity: float }
      */
     public function resolvePurchaseUnit(Product $product): array
     {
+        // Prefer the default selling unit, otherwise the first one
+        $purchaseUnit = $product->sellingUnits()
+            ->where('is_default', true)
+            ->first() ?? $product->sellingUnits()->first();
+
+        if ($purchaseUnit) {
+            return [
+                'name'         => $purchaseUnit->name,
+                'unit_id'      => $purchaseUnit->unit_id ?? $product->base_unit_id,
+                'display_name' => $purchaseUnit->name,
+                'quantity'     => (float) $purchaseUnit->quantity,
+            ];
+        }
+
         $unitId = $product->base_unit_id ?? 'piece';
         return [
             'name'         => $this->resolveDisplayUnit($unitId),
             'unit_id'      => $unitId,
             'display_name' => $this->resolveDisplayUnit($unitId),
+            'quantity'     => 1,
         ];
     }
 

@@ -22,6 +22,8 @@ class CreateSaleRequest extends FormRequest
             'items.*.product_id' => 'required|integer|exists:products,id',
             'items.*.quantity' => 'required|numeric|min:0.01',
             'items.*.packaging_quantity' => 'nullable|numeric|min:0',
+            'items.*.packaging_name' => 'nullable|string|max:255',
+            'items.*.selling_unit_id' => 'nullable|integer|exists:selling_units,id',
             'items.*.base_unit_quantity' => 'nullable|numeric|min:0',
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.total' => 'required|numeric|min:0',

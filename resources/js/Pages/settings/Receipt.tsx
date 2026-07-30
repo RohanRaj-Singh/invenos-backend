@@ -174,7 +174,7 @@ export default function ReceiptSettingsPage() {
               <SettingsCard>
                 <SettingsRow label="Paper Size">
                   <select value={draft.paper_size || 'A4'} onChange={(e) => set('paper_size', e.target.value)}
-                    className="w-32 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                    className="w-full sm:w-32 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                     <option value="A4">A4</option>
                     <option value="A5">A5</option>
                     <option value="58mm">58mm (Thermal)</option>

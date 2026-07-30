@@ -21,6 +21,7 @@ class CreatePurchaseRequest extends FormRequest
             'items.*.product_id' => 'required|integer|exists:products,id',
             'items.*.purchase_pack_qty' => 'required|numeric|min:0',
             'items.*.purchase_quantity' => 'required|numeric|min:0.01',
+            'items.*.purchase_pack_name' => 'nullable|string|max:255',
             'items.*.unit_cost' => 'required|numeric|min:0',
             'amount_paid' => 'nullable|numeric|min:0',
             'payment_status' => 'nullable|in:paid,partial,unpaid',

@@ -8,6 +8,7 @@ use App\Domains\Products\Services\ProductService;
 use App\Domains\Products\Services\ProductUnitService;
 use App\Http\Requests\Products\CreateProductRequest;
 use App\Http\Requests\Products\UpdateProductRequest;
+use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
@@ -18,6 +19,7 @@ class ProductController extends Controller
     public function __construct(
         private readonly ProductService $productService,
         private readonly PackagingDerivationEngine $derivationEngine,
+        private readonly RecordLifecycleService $lifecycle,
         private readonly ProductUnitService $productUnitService,
     ) {}
 
@@ -175,10 +177,34 @@ class ProductController extends Controller
 
     public function destroy(int $id): RedirectResponse
     {
-        $this->productService->delete($id);
+        $this->authorize('lifecycle.delete-products');
 
-        return redirect()->route('inventory.index')
-            ->with('success', 'Product deleted successfully.');
+        $product = \App\Models\Product::findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->delete($product, $reason, auth()->user());
+            return redirect()->route('inventory.index')
+                ->with('success', "Product '{$product->name}' deleted. Archived instead if you need to keep records.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function archive(int $id): RedirectResponse
+    {
+        $this->authorize('lifecycle.archive-products');
+
+        $product = \App\Models\Product::findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->archive($product, $reason, auth()->user());
+            return redirect()->route('inventory.show', $product->id)
+                ->with('success', "Product '{$product->name}' archived.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
     }
 
     public function generateSku(): \Illuminate\Http\JsonResponse
@@ -215,18 +241,10 @@ class ProductController extends Controller
      */
     public function productUnits(): JsonResponse
     {
-        $search = request('search', '');
-        $query = \App\Models\ProductUnit::query();
-
-        if ($search) {
-            $query->where('name', 'like', "%{$search}%");
-        }
-
-        $units = $query->orderBy('name')->take(20)->get();
-
+        $options = $this->productUnitService->getUnitOptions();
         return response()->json([
             'success' => true,
-            'data' => $units,
+            'data' => $options,
         ]);
     }
 

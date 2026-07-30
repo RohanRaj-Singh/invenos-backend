@@ -15,6 +15,7 @@ export interface PermissionSet {
   expenses: { view: boolean; create: boolean; edit: boolean; delete: boolean }
   reports: { view: boolean; print: boolean; export: boolean }
   settings: { access: boolean }
+  lifecycle: { viewRecycleBin: boolean; restore: boolean; permanentDelete: boolean }
 }
 
 export interface User {
@@ -43,6 +44,7 @@ const DEFAULT_SALESMAN_PERMISSIONS: PermissionSet = {
   expenses: { view: true, create: false, edit: false, delete: false },
   reports: { view: true, print: false, export: false },
   settings: { access: false },
+  lifecycle: { viewRecycleBin: false, restore: false, permanentDelete: false },
 }
 
 // ═══ Permission labels for UI ═══
@@ -64,6 +66,11 @@ export const PERMISSION_GROUPS: PermissionGroupDef[] = [
   { key: 'expenses', label: 'Expenses', actions: [{ action: 'view', label: 'View Expenses' }, { action: 'create', label: 'Create Expense' }, { action: 'edit', label: 'Edit Expense' }, { action: 'delete', label: 'Delete Expense' }] },
   { key: 'reports', label: 'Reports', actions: [{ action: 'view', label: 'View Reports' }, { action: 'print', label: 'Print Reports' }, { action: 'export', label: 'Export Reports' }] },
   { key: 'settings', label: 'Settings', actions: [{ action: 'access', label: 'Access Settings' }] },
+  { key: 'lifecycle', label: 'Lifecycle (Delete/Restore)', actions: [
+    { action: 'viewRecycleBin', label: 'View Recycle Bin' },
+    { action: 'restore', label: 'Restore from Recycle Bin' },
+    { action: 'permanentDelete', label: 'Permanently Delete' },
+  ] },
 ]
 
 // ═══ In-memory user store ═══

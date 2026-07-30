@@ -2,6 +2,7 @@ import { Banknote } from 'lucide-react'
 import { createTabularReport } from './TabularReportPage'
 import { debitColumn, creditColumn } from './components/helpers'
 import { getCashFlow, type CashFlowRow } from '@/data/reports-data'
+import { formatDate } from '@/lib/format'
 import { formatCurrency } from '@/data/dashboard'
 
 export default createTabularReport({
@@ -10,7 +11,7 @@ export default createTabularReport({
   icon: <Banknote className="size-5 text-primary" />,
   getData: (range) => getCashFlow(range).rows,
   columns: [
-    { key: 'date', header: 'Date', render: (r: CashFlowRow) => r.date, sortable: true },
+    { key: 'date', header: 'Date', render: (r: CashFlowRow) => formatDate(r.date), sortable: true },
     { key: 'type', header: 'Type', render: (r: CashFlowRow) => <span className="font-medium">{r.type}</span>, sortable: true },
     { key: 'description', header: 'Description', render: (r: CashFlowRow) => r.description },
     debitColumn<CashFlowRow>((r) => r.inflow),

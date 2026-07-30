@@ -15,6 +15,9 @@ import {
   Wallet,
   Settings2,
   LogOut,
+  Trash2,
+  ListOrdered,
+  Activity,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { modules } from '@/data/dashboard'
@@ -44,6 +47,7 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
   const [purchasesOpen, setPurchasesOpen] = useState(url.startsWith('/purchases'))
   const [expensesOpen, setExpensesOpen] = useState(url.startsWith('/expenses'))
   const [reportsOpen, setReportsOpen] = useState(url.startsWith('/reports'))
+  const [utilitiesOpen, setUtilitiesOpen] = useState(url.startsWith('/utilities'))
   const [settingsOpen, setSettingsOpen] = useState(url.startsWith('/settings'))
 
   const isActive = (href: string) => {
@@ -194,15 +198,39 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
           </button>
           {reportsOpen && (
             <div className="ml-4 space-y-0.5 pt-0.5">
-              <button onClick={() => handleNav('/reports')} className={subLinkClass('/reports')}>Report Dashboard</button>
               <button onClick={() => handleNav('/reports/day-book')} className={subLinkClass('/reports/day-book')}>Day Book</button>
-              <button onClick={() => handleNav('/reports/cash-flow')} className={subLinkClass('/reports/cash-flow')}>Cash Flow</button>
-              <button onClick={() => handleNav('/reports/pnl')} className={subLinkClass('/reports/pnl')}>Profit & Loss</button>
-              <button onClick={() => handleNav('/reports/balance-sheet')} className={subLinkClass('/reports/balance-sheet')}>Balance Sheet</button>
               <button onClick={() => handleNav('/reports/sales')} className={subLinkClass('/reports/sales')}>Sales Report</button>
               <button onClick={() => handleNav('/reports/purchases')} className={subLinkClass('/reports/purchases')}>Purchase Report</button>
               <button onClick={() => handleNav('/reports/stock')} className={subLinkClass('/reports/stock')}>Stock Report</button>
-              <button onClick={() => handleNav('/reports/party')} className={subLinkClass('/reports/party')}>Party Statement</button>
+              <button onClick={() => handleNav('/reports/financial-overview')} className={subLinkClass('/reports/financial-overview')}>Financial Overview</button>
+              <button onClick={() => handleNav('/reports/product-ledger')} className={subLinkClass('/reports/product-ledger')}>Product Ledger</button>
+            </div>
+          )}
+        </div>
+
+        {/* Utilities */}
+        <div>
+          <button
+            onClick={() => setUtilitiesOpen(!utilitiesOpen)}
+            className={sectionToggleClass(utilitiesOpen, url.startsWith('/utilities'))}
+          >
+            <span className="flex items-center gap-3">
+              <Box className="size-4 shrink-0" />
+              <span>Utilities</span>
+            </span>
+            {utilitiesOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+          </button>
+          {utilitiesOpen && (
+            <div className="ml-4 space-y-0.5 pt-0.5">
+              <button onClick={() => handleNav('/utilities/recycle-bin')} className={subLinkClass('/utilities/recycle-bin')}>
+                <Trash2 className="size-3.5" /> Recycle Bin
+              </button>
+              <button onClick={() => handleNav('/utilities/audit-log')} className={subLinkClass('/utilities/audit-log')}>
+                <ListOrdered className="size-3.5" /> Audit Log
+              </button>
+              <button onClick={() => handleNav('/utilities/system-health')} className={subLinkClass('/utilities/system-health')}>
+                <Activity className="size-3.5" /> System Health
+              </button>
             </div>
           )}
         </div>

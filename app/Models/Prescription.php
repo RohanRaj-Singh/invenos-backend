@@ -3,14 +3,17 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Prescription extends Model
 {
+    use SoftDeletes;
+
     protected $fillable = [
         'consultation_id', 'patient_id', 'notes', 'refillable',
-        'prescribed_by', 'date',
+        'prescribed_by', 'date', 'delete_reason', 'deleted_by',
     ];
 
     protected $casts = [
@@ -36,5 +39,10 @@ class Prescription extends Model
     public function images(): HasMany
     {
         return $this->hasMany(PrescriptionImage::class);
+    }
+
+    public function deletedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
     }
 }

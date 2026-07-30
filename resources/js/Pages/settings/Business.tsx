@@ -41,7 +41,7 @@ export default function BusinessSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Business Address">
               <input value={draft.address || ''} onChange={(e) => setDraft({ ...draft, address: e.target.value })}
-                className="w-64 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring" />
+                className="w-full sm:w-64 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring" />
             </SettingsRow>
             <SettingsRow label="Phone Number">
               <SettingsInput value={draft.phone || ''} onChange={(v) => setDraft({ ...draft, phone: v })} />
@@ -59,7 +59,7 @@ export default function BusinessSettingsPage() {
           <SettingsCard>
             <SettingsRow label="Currency" description="Default currency for all transactions">
               <select value={draft.currency || 'PKR'} onChange={(e) => setDraft({ ...draft, currency: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="PKR">PKR - Pakistani Rupee</option>
                 <option value="USD">USD - US Dollar</option>
                 <option value="INR">INR - Indian Rupee</option>
@@ -72,7 +72,7 @@ export default function BusinessSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Timezone">
               <select value={draft.timezone || 'Asia/Karachi'} onChange={(e) => setDraft({ ...draft, timezone: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="Asia/Karachi">Asia/Karachi (PKT)</option>
                 <option value="Asia/Dubai">Asia/Dubai (GST)</option>
                 <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
@@ -80,7 +80,7 @@ export default function BusinessSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Date Format">
               <select value={draft.date_format || 'YYYY-MM-DD'} onChange={(e) => setDraft({ ...draft, date_format: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="YYYY-MM-DD">YYYY-MM-DD</option>
                 <option value="DD-MM-YYYY">DD-MM-YYYY</option>
                 <option value="MM/DD/YYYY">MM/DD/YYYY</option>
@@ -89,7 +89,7 @@ export default function BusinessSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Time Format">
               <select value={draft.time_format || '12h'} onChange={(e) => setDraft({ ...draft, time_format: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="12h">12-hour (AM/PM)</option>
                 <option value="24h">24-hour</option>
               </select>
@@ -101,7 +101,7 @@ export default function BusinessSettingsPage() {
           <SettingsCard>
             <SettingsRow label="Business Description" description="Short description for internal use">
               <input value={draft.description || ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                className="w-64 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring" />
+                className="w-full sm:w-64 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring" />
             </SettingsRow>
           </SettingsCard>
         </SettingsSection>

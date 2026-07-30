@@ -175,6 +175,7 @@ class InventoryService
         ?int $referenceId = null,
         ?string $packagingName = null,
         ?float $packagingQuantity = null,
+        ?string $user = null,
     ): InventoryTransaction {
         return $this->applyMovement(
             productId: $productId,
@@ -186,6 +187,7 @@ class InventoryService
             notes: $notes,
             referenceType: $referenceType ?? 'manual',
             referenceId: $referenceId,
+            user: $user,
         );
     }
 

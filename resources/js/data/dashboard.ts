@@ -80,6 +80,16 @@ export const sidebarNav: NavItem[] = [
   { label: 'Expenses', href: '/expenses', icon: 'Wallet' },
   { label: 'Contacts', href: '/contacts', icon: 'Users' },
   { label: 'Reports', href: '/reports', icon: 'BarChart3' },
+  {
+    label: 'Utilities',
+    href: '/settings',
+    icon: 'Settings2',
+    children: [
+      { label: 'Settings', href: '/settings' },
+      { label: 'Recycle Bin', href: '/utilities/recycle-bin' },
+      { label: 'Backup & Restore', href: '/settings/backup' },
+    ],
+  },
 ]
 
 export const modules: ModuleItem[] = [

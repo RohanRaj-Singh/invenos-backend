@@ -4,10 +4,11 @@ namespace App\Policies\Lifecycle;
 
 use App\Contracts\Lifecycle\Archivable;
 use App\Contracts\Lifecycle\Deletable;
-use App\Models\User;
+use App\Contracts\Lifecycle\PermanentDeletable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User;
 
-class ContactPolicy implements Archivable, Deletable
+class ContactPolicy implements Archivable, Deletable, PermanentDeletable
 {
     public function canArchive(Model $record): void
     {
@@ -36,4 +37,6 @@ class ContactPolicy implements Archivable, Deletable
     }
 
     public function executeDelete(Model $record, User $user): void {}
+
+    public function canPermanentDelete(Model $record): void {}
 }

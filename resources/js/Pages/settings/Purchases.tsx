@@ -42,7 +42,7 @@ export default function PurchaseSettingsPage() {
             </SettingsRow>
             <SettingsRow label="Purchase Number Format" description="Format pattern for purchase references">
               <select value={draft.purchaseNumberFormat} onChange={(e) => setDraft({ ...draft, purchaseNumberFormat: e.target.value })}
-                className="w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
+                className="w-full sm:w-48 h-9 px-3 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring">
                 <option value="{PREFIX}{NUMBER}">PUR-00001</option>
                 <option value="{PREFIX}{DATE}-{NUMBER}">PUR-20260723-001</option>
               </select>

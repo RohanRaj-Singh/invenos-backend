@@ -61,12 +61,12 @@ export default function BackupRestorePage() {
 
         <SettingsSection title="Backup Actions">
           <SettingsCard>
-            <div className="flex items-center gap-4">
-              <Button size="sm" className="gap-1.5" onClick={handleCreateBackup} disabled={creating}>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <Button size="sm" className="gap-1.5 min-h-[36px]" onClick={handleCreateBackup} disabled={creating}>
                 {creating ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
                 {creating ? 'Creating...' : 'Create Backup'}
               </Button>
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => fileInputRef.current?.click()}>
+              <Button size="sm" variant="outline" className="gap-1.5 min-h-[36px]" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="size-4" /> Restore from File
               </Button>
               <input ref={fileInputRef} type="file" accept=".sql,.txt" className="hidden" onChange={handleRestoreUpload} />
@@ -84,19 +84,19 @@ export default function BackupRestorePage() {
             ) : (
               <div className="space-y-1">
                 {backups.map((b) => (
-                  <div key={b.name} className="flex items-center justify-between py-2.5 px-3 rounded-lg hover:bg-muted/50 transition-colors">
+                  <div key={b.name} className="flex flex-col sm:flex-row sm:items-center justify-between py-3 px-3 rounded-lg hover:bg-muted/50 transition-colors gap-2">
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <div className="size-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
                         <HardDrive className="size-4 text-muted-foreground" />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-medium truncate">{b.name}</div>
                         <div className="text-xs text-muted-foreground">{b.size} · {b.date}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                    <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
                       <a href={`/settings/backup/download/${encodeURIComponent(b.name)}`}
-                        className="inline-flex items-center justify-center size-8 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        className="inline-flex items-center justify-center size-9 sm:size-8 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                         title="Download"
                       >
                         <Download className="size-3.5" />
@@ -104,15 +104,15 @@ export default function BackupRestorePage() {
                       {confirmDelete === b.name ? (
                         <div className="flex items-center gap-1">
                           <button onClick={() => handleDelete(b.name)}
-                            className="inline-flex items-center px-2 py-1 rounded-md bg-red-50 text-red-600 text-xs font-medium hover:bg-red-100 transition-colors"
+                            className="inline-flex items-center px-3 py-1.5 rounded-md bg-red-50 text-red-600 text-xs font-medium hover:bg-red-100 transition-colors min-h-[32px]"
                           >Confirm</button>
                           <button onClick={() => setConfirmDelete(null)}
-                            className="inline-flex items-center px-2 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground transition-colors"
+                            className="inline-flex items-center px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground transition-colors min-h-[32px]"
                           >Cancel</button>
                         </div>
                       ) : (
                         <button onClick={() => setConfirmDelete(b.name)}
-                          className="inline-flex items-center justify-center size-8 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
+                          className="inline-flex items-center justify-center size-9 sm:size-8 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-500 transition-colors"
                           title="Delete"
                         >
                           <Trash2 className="size-3.5" />

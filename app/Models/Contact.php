@@ -20,6 +20,7 @@ class Contact extends Model
         'type', 'roles', 'name', 'company_name', 'contact_person',
         'phone', 'email', 'cnic', 'address', 'opening_balance',
         'balance_type', 'current_balance', 'notes', 'created_by',
+        'delete_reason', 'deleted_by',
     ];
 
     protected $casts = [
@@ -36,6 +37,7 @@ class Contact extends Model
     public function sales() { return $this->hasMany(Sale::class, 'customer_id'); }
     public function purchases() { return $this->hasMany(PurchaseBill::class, 'supplier_id'); }
     public function financialTransactions() { return $this->hasMany(FinancialTransaction::class); }
+    public function deletedBy() { return $this->belongsTo(User::class, 'deleted_by'); }
 
     // ── Clinic (patient role) ──
     public function consultations() { return $this->hasMany(Consultation::class, 'patient_id'); }

@@ -20,9 +20,9 @@ class PurchaseService
         private readonly ProductUnitService $productUnitService,
     ) {}
 
-    public function search(string $query = '', ?int $supplierId = null, ?string $status = null, int $perPage = 25): LengthAwarePaginator
+    public function search(string $query = '', ?int $supplierId = null, ?string $status = null, string $dateFrom = '', string $dateTo = '', int $perPage = 25): LengthAwarePaginator
     {
-        $q = PurchaseBill::with('supplier')->withCount('items')->where('invoice_ref', 'not like', 'PRET-%');
+        $q = PurchaseBill::with('supplier')->withCount('items');
 
         if ($query) {
             $q->where(function ($q) use ($query) {
@@ -37,6 +37,14 @@ class PurchaseService
 
         if ($status && $status !== 'all') {
             $q->where('status', $status);
+        }
+
+        if ($dateFrom) {
+            $q->whereDate('date', '>=', $dateFrom);
+        }
+
+        if ($dateTo) {
+            $q->whereDate('date', '<=', $dateTo);
         }
 
         return $q->orderBy('created_at', 'desc')->paginate($perPage);
@@ -89,6 +97,13 @@ class PurchaseService
                 $product = Product::lockForUpdate()->findOrFail($itemData->productId);
                 $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
 
+                // Resolve pack display name through ProductUnitService so raw unit_ids
+                // like 'kg' become 'Kilogram (kg)', and display names pass through.
+                $purchaseUnit = $this->productUnitService->resolvePurchaseUnit($product);
+                $packName = $this->productUnitService->resolveDisplayUnit(
+                    $itemData->packName ?: $purchaseUnit['name']
+                );
+
                 $unitName = $this->productUnitService->resolveDisplayUnit($product->base_unit_id);
                 PurchaseBillItem::create([
                     'purchase_bill_id' => $bill->id,
@@ -96,7 +111,7 @@ class PurchaseService
                     'product_name' => $product->name,
                     'base_unit_id' => $product->base_unit_id,
                     'base_unit_name' => $unitName,
-                    'purchase_pack_name' => $itemData->packName ?? 'Pack',
+                    'purchase_pack_name' => $packName,
                     'purchase_pack_qty' => $itemData->purchasePackQty,
                     'purchase_quantity' => $itemData->purchaseQuantity,
                     'unit_cost' => $itemData->unitCost,
@@ -150,35 +165,23 @@ class PurchaseService
 
     public function delete(int $id): ?bool
     {
-        return DB::transaction(function () use ($id) {
-            $bill = PurchaseBill::with('items', 'supplier')->findOrFail($id);
-
-            foreach ($bill->items as $item) {
-                $baseQuantity = $item->purchase_pack_qty * $item->purchase_quantity;
-                $this->inventoryService->recordAdjustment(
-                    productId: $item->product_id,
-                    quantity: -$baseQuantity,
-                    reference: 'REV-' . $bill->invoice_ref,
-                    notes: "Reversal of purchase {$bill->invoice_ref}",
-                    referenceType: 'purchase',
-                    referenceId: $bill->id,
-                );
-            }
-
-            if ($bill->supplier && $bill->total_amount > 0) {
-                $bill->supplier->current_balance = max(0, ($bill->supplier->current_balance ?? 0) - $bill->total_amount);
-                $bill->supplier->save();
-            }
-
-            return $bill->delete();
-        });
+        $bill = PurchaseBill::findOrFail($id);
+        app(\App\Services\Lifecycle\RecordLifecycleService::class)->delete(
+            $bill,
+            request('reason', 'Deleted via service'),
+            \Illuminate\Support\Facades\Auth::user() ?? \App\Models\User::first(),
+        );
+        return true;
     }
 
     public function restore(int $id): PurchaseBill
     {
         $bill = PurchaseBill::withTrashed()->findOrFail($id);
-        $bill->restore();
-        return $bill;
+        app(\App\Services\Lifecycle\RecordLifecycleService::class)->restore(
+            $bill,
+            \Illuminate\Support\Facades\Auth::user() ?? \App\Models\User::first(),
+        );
+        return $bill->fresh();
     }
 
     private function recalculateStatus(Product $product): void

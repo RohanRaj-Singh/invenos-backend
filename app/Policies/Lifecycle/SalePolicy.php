@@ -3,12 +3,14 @@
 namespace App\Policies\Lifecycle;
 
 use App\Contracts\Lifecycle\Deletable;
+use App\Contracts\Lifecycle\PermanentDeletable;
 use App\Contracts\Lifecycle\Restorable;
 use App\Domains\Inventory\Services\InventoryService;
-use App\Models\User;
+use App\Models\FinancialTransaction;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Foundation\Auth\User;
 
-class SalePolicy implements Deletable, Restorable
+class SalePolicy implements Deletable, Restorable, PermanentDeletable
 {
     public function __construct(
         private readonly InventoryService $inventoryService,
@@ -20,18 +22,11 @@ class SalePolicy implements Deletable, Restorable
     {
         throw_if($record->trashed(), 'Sale is already deleted.');
 
-        $hasReturns = $record->returns()->exists()
-            ?? \App\Models\SaleItem::where('sale_id', $record->id)
-                ->whereHas('prescriptionItem')
-                ->exists();
-
-        // Simple check: does a SaleReturn reference this sale?
-        // Since SaleReturn isn't fully built, check inventory transactions
-        $hasLinkedTxns = \App\Models\InventoryTransaction::where('reference', $record->invoice_number)
-            ->where('type', 'return')
+        $hasReturns = \App\Models\InventoryTransaction::where('reference', $record->invoice_number)
+            ->where('type', 'sale-return')
             ->exists();
 
-        throw_if($hasReturns || $hasLinkedTxns,
+        throw_if($hasReturns,
             'Cannot delete: a return references this sale. Delete the return first.');
     }
 
@@ -54,6 +49,7 @@ class SalePolicy implements Deletable, Restorable
                 'Inventory will be added back.',
                 'Payment will be reversed.',
                 'Customer balance will be updated.',
+                'Financial transaction will be reversed.',
                 'Audit log will be recorded.',
             ],
         ];
@@ -76,6 +72,11 @@ class SalePolicy implements Deletable, Restorable
         if ($record->customer) {
             $record->customer->decrement('current_balance', $record->grand_total);
         }
+
+        // Remove the financial transaction that was created with the sale
+        FinancialTransaction::where('linked_sale_id', $record->id)
+            ->where('type', 'invoice')
+            ->delete();
     }
 
     // ─── Restore ───────────────────────────────────────────────
@@ -102,5 +103,26 @@ class SalePolicy implements Deletable, Restorable
         if ($record->customer) {
             $record->customer->increment('current_balance', $record->grand_total);
         }
+
+        // Re-create the financial transaction
+        if ($record->customer) {
+            FinancialTransaction::create([
+                'contact_id' => $record->customer->id,
+                'direction' => 'in',
+                'type' => 'invoice',
+                'date' => $record->date,
+                'amount' => $record->grand_total,
+                'method' => 'invoice',
+                'reference' => $record->invoice_number,
+                'description' => "Sale: {$record->invoice_number} (restored)",
+                'linked_sale_id' => $record->id,
+                'created_by' => $user->name ?? 'System',
+            ]);
+        }
+    }
+
+    public function canPermanentDelete(Model $record): void
+    {
+        // Admin-only gate already applied in controller
     }
 }
