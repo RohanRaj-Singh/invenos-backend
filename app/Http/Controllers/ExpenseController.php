@@ -125,6 +125,14 @@ class ExpenseController extends Controller
         ]);
     }
 
+    public function listCategories(): Response
+    {
+        $categories = ExpenseCategory::orderBy('name')->get();
+        return Inertia::render('expenses/ExpenseCategories', [
+            'categories' => $categories->toArray(),
+        ]);
+    }
+
     public function destroy(int $id): RedirectResponse
     {
         Expense::findOrFail($id)->delete();
