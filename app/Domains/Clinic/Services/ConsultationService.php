@@ -156,7 +156,7 @@ class ConsultationService
 
     public function patientConsultations(int $patientId, int $limit = 20): array
     {
-        return Consultation::withTrashed()
+        return Consultation::query()
             ->with([
                 'prescriptions' => fn($q) => $q->withTrashed(),
                 'sale' => fn($q) => $q->withTrashed(),
