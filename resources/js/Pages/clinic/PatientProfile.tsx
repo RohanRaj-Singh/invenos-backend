@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { router, usePage } from '@inertiajs/react'
-import { Stethoscope, Activity, Pill, CreditCard, Plus, ArrowLeft } from 'lucide-react'
+import { Stethoscope, Activity, Pill, CreditCard, Plus, ArrowLeft, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import PatientHeader from './components/PatientHeader'
 import VisitsTimeline from './components/VisitsTimeline'
 import PrescriptionsList from './components/PrescriptionsList'
 import PaymentsOverview from './components/PaymentsOverview'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 const tabs = [
@@ -22,6 +24,19 @@ export default function PatientProfilePage() {
   const consultations = (props as any).consultations || []
   const prescriptions = (props as any).prescriptions || []
   const [activeTab, setActiveTab] = useState<TabId>('visits')
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleDelete = () => {
+    setIsDeleting(true)
+    router.delete(`/contacts/${patient.id}`, {
+      data: { reason: deleteReason || 'Deleted from clinic module' },
+      onSuccess: () => router.visit('/clinic', { preserveState: false }),
+      onError: (err) => { toast.error(Object.values(err).join(', ')); setIsDeleting(false); setShowDeleteDialog(false) },
+      onFinish: () => setIsDeleting(false),
+    })
+  }
 
   if (!patient) {
     return (
@@ -59,8 +74,8 @@ export default function PatientProfilePage() {
         <Button onClick={() => router.visit(`/clinic/patient/${patient.id}/visit`)}
           className="gap-1.5 h-9 shadow-sm">
           <Plus className="size-4" />
-          <span>New Visit</span>
-        </Button>
+          <span>New Visit</span></Button>
+        <Button variant="outline" onClick={() => setShowDeleteDialog(true)} className="gap-1.5 h-9 text-red-500 border-red-200 hover:bg-red-50 shrink-0"><Trash2 className="size-4" /><span>Delete Patient</span></Button>
       </div>
 
       <PatientHeader patient={patient} visitCount={consultations.length} />
@@ -101,6 +116,35 @@ export default function PatientProfilePage() {
           />
         )}
       </div>
+
+      {/* Delete Patient Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="sm:max-w-md gap-0 p-0">
+          <DialogHeader className="p-5 pb-0">
+            <DialogTitle className="text-base flex items-center gap-2 text-red-500">
+              <Trash2 className="size-5" />
+              Delete Patient
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground pt-1">
+              This will delete the patient contact. Any remaining visits, sales, or purchases must be removed first.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for deletion</label>
+              <input type="text" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="e.g. Duplicate record, no longer a patient..."
+                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setShowDeleteDialog(false); setDeleteReason('') }} className="flex-1">Cancel</Button>
+              <Button onClick={handleDelete} disabled={isDeleting} className="flex-1 gap-1.5 bg-red-600 hover:bg-red-700">
+                <Trash2 className="size-4" /> {isDeleting ? 'Deleting...' : 'Delete Patient'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

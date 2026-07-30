@@ -71,6 +71,7 @@ Route::prefix('contacts')->group(function () {
     Route::put('/{id}', [ContactController::class, 'update'])->name('contacts.update');
     Route::get('/{id}/edit', [ContactController::class, 'edit'])->name('contacts.edit');
     Route::post('/{id}/ledger', [ContactController::class, 'ledger'])->name('contacts.ledger');
+    Route::delete('/{id}', [ContactController::class, 'destroy'])->name('contacts.destroy');
 });
 
 Route::prefix('payments')->group(function () {

@@ -61,7 +61,12 @@ class ContactService
     public function delete(int $id): ?bool
     {
         $contact = Contact::findOrFail($id);
-        return $contact->delete();
+        app(\App\Services\Lifecycle\RecordLifecycleService::class)->delete(
+            $contact,
+            request('reason', 'Deleted from contact module'),
+            \Illuminate\Support\Facades\Auth::user() ?? \App\Models\User::first(),
+        );
+        return true;
     }
 
     public function restore(int $id): Contact
