@@ -62,7 +62,7 @@ const statusCfg: Record<string, { label: string; cls: string }> = {
 
 export default function PurchaseDetailPage() {
   const { props } = usePage()
-  const { purchase, returns } = props as { purchase: BackendPurchase; returns?: BackendReturn[] }
+  const { purchase, returns } = props as unknown as { purchase: BackendPurchase; returns?: BackendReturn[] }
   const authUser = (props as any).auth?.user ?? null
   const isAdmin = authUser?.role === 'admin'
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)

@@ -629,7 +629,7 @@ export default function SaleBillPage() {
       customer,
       method: result.receipt.method,
       paymentStatus: result.receipt.paymentStatus,
-    } as ReceiptData)
+    } as unknown as ReceiptData)
     setShowReceipt(true)
     resetSale()
   }, [

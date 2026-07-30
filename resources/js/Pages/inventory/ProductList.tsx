@@ -57,8 +57,11 @@ function computeCompletionStatus(p: BackendProduct): 'complete' | 'incomplete' {
 }
 
 export default function ProductListPage() {
-  const { props } = usePage<ProductsPageProps>()
-  const { products, categories, meta, filters } = props
+  const { props } = usePage<Record<string, any>>()
+  const products: BackendProduct[] = (props as any).products || []
+  const categories: Category[] = (props as any).categories || []
+  const meta = (props as any).meta || {}
+  const filters = (props as any).filters || {}
 
   const [search, setSearch] = useState(filters?.search || '')
   const [category, setCategory] = useState<string>(filters?.category_id ? String(filters.category_id) : 'all')
@@ -136,12 +139,12 @@ export default function ProductListPage() {
 
       {/* Desktop table */}
       <div className="hidden md:block">
-        <ProductTable products={filtered} />
+        <ProductTable products={filtered as any} />
       </div>
 
       {/* Mobile cards */}
       <div className="md:hidden">
-        <ProductCardView products={filtered} />
+        <ProductCardView products={filtered as any} />
       </div>
     </div>
   )

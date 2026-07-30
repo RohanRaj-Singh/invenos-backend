@@ -174,7 +174,7 @@ export default function ExpenseFormPage() {
                     setCategoryInput(e.target.value)
                     setShowSuggestions(true)
                     const match = categories.find(
-                      (c) => c.name.toLowerCase() === e.target.value.toLowerCase()
+                      (c: any) => c.name.toLowerCase() === e.target.value.toLowerCase()
                     )
                     if (match) {
                       setCategoryId(match.id)
@@ -214,8 +214,8 @@ export default function ExpenseFormPage() {
               {showSuggestions && categoryInput && (
                 <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-background border border-border rounded-xl shadow-lg max-h-48 overflow-y-auto">
                   {categories
-                    .filter((c) => c.name.toLowerCase().includes(categoryInput.toLowerCase()) && c.id !== categoryId)
-                    .map((c) => (
+                    .filter((c: any) => c.name.toLowerCase().includes(categoryInput.toLowerCase()) && c.id !== categoryId)
+                    .map((c: any) => (
                       <button
                         key={c.id}
                         type="button"
@@ -231,7 +231,7 @@ export default function ExpenseFormPage() {
                         <span>{c.name}</span>
                       </button>
                     ))}
-                  {categories.filter((c) => c.name.toLowerCase().includes(categoryInput.toLowerCase()) && c.id !== categoryId).length === 0 && (
+                  {categories.filter((c: any) => c.name.toLowerCase().includes(categoryInput.toLowerCase()) && c.id !== categoryId).length === 0 && (
                     <div className="px-3 py-3 text-sm text-muted-foreground">
                       No matching category.{' '}
                       <button

@@ -196,7 +196,7 @@ export default function PurchaseBillPage() {
     if (!search.trim()) return []
     const q = search.toLowerCase()
     return mockProducts
-      .filter((p) =>
+      .filter((p: any) =>
         (p.name || '').toLowerCase().includes(q) ||
         (p.sku || '').toLowerCase().includes(q) ||
         ((p.category?.name || p.category || '') + '').toLowerCase().includes(q)
@@ -269,7 +269,7 @@ export default function PurchaseBillPage() {
   const handleChangeUnit = useCallback((itemId: string, unitId: string) => {
     const item = cart.find((c) => c.id === itemId)
     if (!item) return
-    const product = mockProducts.find((p) => p.id === item.productId)
+    const product = mockProducts.find((p: any) => p.id === item.productId)
     if (!product) return
 
     if (unitId === product.baseUnitId) {
@@ -436,9 +436,9 @@ export default function PurchaseBillPage() {
 
   // ── Selling-unit yield breakdown per item ──
   const getSellingUnitBreakdown = useCallback((item: PurchaseItem) => {
-    const product = mockProducts.find((p) => p.id === item.productId)
+    const product = mockProducts.find((p: any) => p.id === item.productId)
     if (!product) return []
-    return product.sellingUnits.map((su) => {
+    return product.sellingUnits.map((su: any) => {
       const costPerUnit = calculateSellingUnitCost(product, su.id)
       const yieldQty = item.purchaseQuantity * (item.purchasePackQty / su.quantity)
       const revenue = yieldQty * su.salePrice
@@ -488,7 +488,7 @@ export default function PurchaseBillPage() {
         onSearchChange={setSearch}
         showResults={showResults}
         onShowResultsChange={setShowResults}
-        results={filteredProducts.map((p) => ({
+        results={filteredProducts.map((p: any) => ({
           id: p.id, name: p.name, sku: p.sku,
           sellingUnits: [{ name: p.purchaseConfig?.name || 'Pack', salePrice: p.purchaseConfig?.cost }],
         }))}
@@ -547,7 +547,7 @@ export default function PurchaseBillPage() {
                             </button>
                             {isExpanded && (
                               <div className="mt-1 flex flex-wrap gap-1">
-                                {breakdown.map((su) => (
+                                {breakdown.map((su: any) => (
                                   <div key={su.name} className="text-[10px] px-1.5 py-0.5 rounded bg-muted/50 inline-flex items-center gap-1">
                                     <span className="font-medium text-foreground">{su.name}</span>
                                     <span className="text-muted-foreground">@{formatCurrency(su.costPerUnit)} → {formatCurrency(su.salePrice)}</span>
@@ -568,7 +568,7 @@ export default function PurchaseBillPage() {
                           <option value="purchase-pack">{item.purchasePackName}</option>
                           <option value={item.baseUnitId}>Per {item.baseUnitName}</option>
                           {(() => {
-                            const product = mockProducts.find((p) => p.id === item.productId)
+                            const product = mockProducts.find((p: any) => p.id === item.productId)
                             if (!product) return null
                             const customOpts = purchaseStrategy.getCustomUnitOptions({ id: product.id, name: product.name, sku: product.sku, category: product.category, baseUnitId: product.baseUnitId, sellingUnits: [] })
                             if (customOpts.length === 0) return null

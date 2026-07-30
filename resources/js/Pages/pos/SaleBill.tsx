@@ -307,7 +307,7 @@ export default function SaleBillPage() {
   // ── Product search ──
   const searchResults = useMemo(() => {
     if (!search.trim()) return []
-    return filterPOSProducts(search, 'all').slice(0, 8)
+    return filterPOSProducts(search).slice(0, 8)
   }, [search])
 
   // ── Handlers ──
@@ -370,13 +370,13 @@ export default function SaleBillPage() {
   }, [])
 
   const getSellingUnits = useCallback((productId: string): SellingUnit[] => {
-    const product = posProducts.find((p) => p.id === productId)
+    const product = posProducts.find((p: any) => p.id === productId)
     return product?.sellingUnits ?? []
   }, [])
 
   const getCustomUnitOptions = useCallback(
     (productId: string): CustomUnitOption[] => {
-      const product = posProducts.find((p) => p.id === productId)
+      const product = posProducts.find((p: any) => p.id === productId)
       if (!product) return []
       const unit = getUnit(product.baseUnitId)
       if (!unit) return []
@@ -413,7 +413,7 @@ export default function SaleBillPage() {
 
   const handleChangeUnit = useCallback(
     (productId: string, sellingUnitId: string) => {
-      const product = posProducts.find((p) => p.id === productId)
+      const product = posProducts.find((p: any) => p.id === productId)
       if (!product) return
 
       // Custom measurement unit
@@ -450,7 +450,7 @@ export default function SaleBillPage() {
       }
 
       // Regular selling unit
-      const su = product.sellingUnits.find((s) => s.id === sellingUnitId)
+      const su = product.sellingUnits.find((s: any) => s.id === sellingUnitId)
       if (!su) return
       setCart((prev) =>
         prev.map((c) =>
@@ -821,7 +821,7 @@ export default function SaleBillPage() {
               ) : (
                 cart.map((item, idx) => {
                   const product = posProducts.find(
-                    (p) => p.id === item.productId,
+                    (p: any) => p.id === item.productId,
                   )
                   const sellingUnits = getSellingUnits(item.productId)
                   const customOpts = getCustomUnitOptions(item.productId)

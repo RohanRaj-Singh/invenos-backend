@@ -1,3 +1,4 @@
+import type { StockStatus } from '@/types'
 import { router } from '@inertiajs/react'
 import { Package, ArrowRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -84,7 +85,7 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                       product.stock_quantity === 0 && 'text-red-500',
                       product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
                     )}>
-                      {product.stock_quantity} {product.base_unit_name || product.base_unit_id || 'Unit'}
+                      {product.stock_quantity} {((product as any).base_unit_name || product.base_unit_id || 'Unit')}
                     </div>
                   </div>
                   <div className="rounded-lg bg-muted/50 px-2.5 py-2">
@@ -97,7 +98,7 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>Cost: {formatCurrency(product.last_purchase_cost ?? product.default_purchase_cost ?? 0)}</span>
                   </div>
-                  <StockBadge status={product.status} size="xs" />
+                  <StockBadge status={product.status as StockStatus} size="xs" />
                 </div>
               </div>
             </CardContent>

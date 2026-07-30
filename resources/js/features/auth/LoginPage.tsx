@@ -15,7 +15,7 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (auth.isAuthenticated) router.visit('/', { replace: true })
-  }, [auth.isAuthenticated, navigate])
+  }, [auth.isAuthenticated])
 
   useEffect(() => {
     usernameRef.current?.focus()

@@ -1,3 +1,4 @@
+import type { StockStatus } from '@/types'
 import { router, usePage } from '@inertiajs/react'
 import { useState } from 'react'
 import {
@@ -46,9 +47,7 @@ interface BackendProduct {
 
 export default function ProductDetailsPage() {
   const { props, url } = usePage()
-  const { product, movements, purchases, sales } = props as {
-    product: BackendProduct | null; movements?: any[]; purchases?: any[]; sales?: any[]
-  }
+  const { product, movements, purchases, sales } = props as unknown as { product: BackendProduct | null; movements?: any[]; purchases?: any[]; sales?: any[] }
   const id = url.split('/').pop() || ''
   const authUser = (props as any).auth?.user ?? null
   const isAdmin = authUser?.role === 'admin'
@@ -108,7 +107,7 @@ export default function ProductDetailsPage() {
           <div className="flex items-center gap-2">
             <Package className="size-5 text-primary" />
             <h1 className="text-xl font-semibold tracking-tight">{product.name}</h1>
-            <StockBadge status={product.status} />
+            <StockBadge status={product.status as StockStatus} />
             <CompletionBadge product={product as any} size="sm" />
           </div>
           <p className="text-sm text-muted-foreground mt-1">
@@ -190,7 +189,7 @@ export default function ProductDetailsPage() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Status</span>
-                <StockBadge status={product.status} />
+                <StockBadge status={product.status as StockStatus} />
               </div>
               <div className="text-sm pt-2 border-t border-border">
                 <span className="text-muted-foreground block mb-1">Description</span>

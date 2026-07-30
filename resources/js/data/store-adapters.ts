@@ -54,7 +54,7 @@ export class MockFinancialStore implements FinancialStore {
 
 export class MockTransactionStore implements TransactionStore {
   save(record: TransactionRecord): void {
-    if (record.transactionType === 'purchase' || record.transactionType === 'purchase-return') {
+    if (record.transactionType === 'purchase' || false) {
       addPurchaseBill({
         id: record.id,
         invoiceRef: record.invoiceRef,
@@ -83,7 +83,7 @@ export class MockTransactionStore implements TransactionStore {
         createdAt: record.createdAt,
       })
     } else {
-      const isReturn = record.transactionType === 'sale-return' || record.transactionType === 'purchase-return'
+      const isReturn = record.transactionType === 'sale-return' || false
       allSales.push({
         id: record.id,
         invoiceNumber: record.invoiceRef,

@@ -55,7 +55,7 @@ const sourceStyles: Record<string, string> = {
 
 export default function SaleDetailPage() {
   const { props } = usePage()
-  const { sale } = props as { sale: BackendSale | null }
+  const { sale } = props as unknown as { sale: BackendSale | null }
   const authUser = (props as any).auth?.user ?? null
   const isAdmin = authUser?.role === 'admin'
   const [showPayment, setShowPayment] = useState(false)

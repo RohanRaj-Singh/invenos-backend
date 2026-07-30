@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import AddMedicineDialog from './components/AddMedicineDialog'
-import type { MedicineEntry } from '../components/AddMedicineDialog'
+import type { MedicineEntry } from './components/AddMedicineDialog'
 
 const paymentOptions = [
   { id: 'full' as const, label: 'Full Payment', desc: 'Pay entire amount now' },
@@ -371,7 +371,7 @@ export default function NewVisitPage() {
       <AddMedicineDialog
         open={showMedDialog}
         onClose={() => { setShowMedDialog(false); setEditingIdx(null) }}
-        onAdd={handleAddMedicine}
+        onAdd={handleAddMedicine as any}
         selectedIds={selectedMeds.map((m) => m.productId)}
         editEntry={editingIdx !== null ? selectedMeds[editingIdx] : null}
         products={serverProducts}

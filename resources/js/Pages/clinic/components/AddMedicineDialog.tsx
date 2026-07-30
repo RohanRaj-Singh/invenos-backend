@@ -73,7 +73,7 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
   // When editEntry changes, pre-fill
   useEffect(() => {
     if (open && editEntry) {
-      const product = serverProducts.find((p: any) => String(p.id) === String(editEntry.productId))
+      const product = (serverProducts || []).find((p: any) => String(p.id) === String(editEntry.productId))
       if (product) {
         const sus = product.selling_units || product.sellingUnits || []
         const su = sus.find((u: any) => u.name === editEntry.packagingName) || getSmallestUnit(product)
@@ -100,7 +100,7 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
   const filtered = useMemo(() => {
     if (!search.trim()) return serverProducts
     const q = search.toLowerCase()
-    return serverProducts.filter((p: any) =>
+    return (serverProducts || []).filter((p: any) =>
       p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
     )
   }, [search, serverProducts])
@@ -403,13 +403,13 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
         ) : (
           /* ─── Product list ─── */
           <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-1">
-            {filtered.length === 0 && (
+            {(filtered || []).length === 0 && (
               <div className="text-center py-12 text-sm text-muted-foreground">
                 <Package className="size-8 mx-auto mb-2 text-muted-foreground/30" />
                 No products found.
               </div>
             )}
-            {filtered.map((product: any) => {
+            {(filtered || []).map((product: any) => {
               const sus = product.selling_units || product.sellingUnits || []
               const alreadySelected = selectedIds.includes(String(product.id))
               return (

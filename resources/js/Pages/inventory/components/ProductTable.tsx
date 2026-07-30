@@ -1,3 +1,4 @@
+import type { StockStatus } from '@/types'
 import { router } from '@inertiajs/react'
 import { ArrowRight, Package } from 'lucide-react'
 import StockBadge from './StockBadge'
@@ -120,7 +121,7 @@ export default function ProductTable({ products }: ProductTableProps) {
                       >
                         {product.stock_quantity.toLocaleString()}
                       </span>
-                      <span className="text-[10px] text-muted-foreground">{product.base_unit_name || product.base_unit_id || 'Unit'}</span>
+                      <span className="text-[10px] text-muted-foreground">{((product as any).base_unit_name || product.base_unit_id || 'Unit')}</span>
                     </div>
                   </td>
                   <td
@@ -145,7 +146,7 @@ export default function ProductTable({ products }: ProductTableProps) {
                     className="px-4 py-3.5 cursor-pointer"
                     onClick={() => router.visit(`/inventory/product/${product.id}`)}
                   >
-                    <StockBadge status={product.status} />
+                    <StockBadge status={product.status as StockStatus} />
                   </td>
                   <td
                     className="px-4 py-3.5 cursor-pointer"
