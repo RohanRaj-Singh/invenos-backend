@@ -24,8 +24,8 @@ class ProductPolicy implements Archivable, Deletable, PermanentDeletable
     public function canDelete(Model $record): void
     {
         /** @var Product $record */
-        throw_if($record->stock_quantity > 0,
-            'Cannot delete a product with stock. Archive it instead.');
+        // Stock quantity alone does not block deletion — if all transactions
+        // have been reversed, remaining stock is cleaned up during delete.
 
         $hasTransactions = \App\Models\SaleItem::where('product_id', $record->id)->exists()
             || \App\Models\PurchaseBillItem::where('product_id', $record->id)->exists();

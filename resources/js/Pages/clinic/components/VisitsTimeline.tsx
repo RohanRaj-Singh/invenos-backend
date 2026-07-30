@@ -1,8 +1,12 @@
+import { useState } from 'react'
 import { router } from '@inertiajs/react'
-import { Calendar, FileText, Clock, CheckCircle2, ChevronRight, Pill } from 'lucide-react'
+import { Calendar, FileText, Clock, CheckCircle2, ChevronRight, Pill, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { formatCurrency, formatDate } from '@/lib/format'
+import { toast } from 'sonner'
 
 // ─── Status config ────────────────────────────────────────────
 const statusConfig: Record<string, { label: string; icon: typeof CheckCircle2; class: string; bgClass: string }> = {
@@ -59,6 +63,25 @@ interface VisitsTimelineProps {
 
 // ─── Component ────────────────────────────────────────────────
 export default function VisitsTimeline({ consultations, visits, salesMap }: VisitsTimelineProps) {
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleDelete = () => {
+    if (!deleteTarget) return
+    setIsDeleting(true)
+    router.delete(`/clinic/consultations/${deleteTarget.id}`, {
+      data: { reason: deleteReason || 'Manual deletion' },
+      onSuccess: () => {
+        toast.success('Visit deleted. Sale and inventory reversed.')
+        setDeleteTarget(null)
+        setDeleteReason('')
+      },
+      onError: (err) => toast.error(Object.values(err).join(', ')),
+      onFinish: () => setIsDeleting(false),
+    })
+  }
+
   const items = consultations || visits || []
   const dateField = consultations ? 'visit_date' : 'visitDate'
   const grouped = groupByMonth(items, dateField)
@@ -90,149 +113,126 @@ export default function VisitsTimeline({ consultations, visits, salesMap }: Visi
               const consultationFee = item.consultation_fee ?? item.consultationFee ?? 0
               const saleItems = sale?.items || []
               const medicinesTotal = saleItems.reduce((sum: number, si: any) => sum + (si.total || 0), 0)
-              // Full total = consultation fee + medicines from sale
               const grandTotal = consultationFee + (sale?.grand_total ?? sale?.grandTotal ?? 0)
               const paidAmount = sale?.amount_paid ?? sale?.amountPaid ?? 0
               const outstandingAmount = Math.max(0, grandTotal - paidAmount)
 
               return (
-                <div
-                  key={item.id}
-                  onClick={() => router.visit(`/clinic/visit/${item.id}`)}
-                  className={cn(
-                    'group relative rounded-2xl border border-border/80 bg-card',
-                    'hover:border-primary/30 hover:shadow-sm hover:bg-muted/20',
-                    'transition-all duration-200 cursor-pointer overflow-hidden',
-                  )}
-                >
-                  {/* Top accent bar based on status */}
-                  <div className={cn(
-                    'h-1 w-full',
-                    item.status === 'completed' && 'bg-emerald-500/50',
-                    item.status === 'follow-up' && 'bg-amber-500/50',
-                    item.status === 'scheduled' && 'bg-blue-500/50',
-                  )} />
-
-                  <div className="p-4 sm:p-5">
-                    {/* ── Row 1: Date · Status · Cost ── */}
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className={cn(
-                          'flex items-center justify-center size-9 rounded-xl shrink-0 ring-1 ring-border/50',
-                          cfg.bgClass
-                        )}>
-                          <StatusIcon className={cn('size-[18px]', cfg.class)} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">
-                              {formatDate(visitDate)}
-                            </span>
-                            <span className="text-[11px] text-muted-foreground/70 hidden sm:inline">
-                              {relativeTime(visitDate)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <Badge variant="outline" className={cn(
-                              'text-[10px] px-1.5 py-0 h-4 font-medium',
-                              item.status === 'completed' && 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
-                              item.status === 'follow-up' && 'text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800',
-                              item.status === 'scheduled' && 'text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800',
-                            )}>
-                              {cfg.label}
-                            </Badge>
-                            {item.type && item.type !== 'General Consultation' && (
-                              <span className="text-[10px] text-muted-foreground/60 truncate max-w-[120px]">{item.type}</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Cost summary — prominent on the right */}
-                      <div className="text-right shrink-0">
-                        <div className="text-base font-bold text-foreground tabular-nums leading-none">
-                          {formatCurrency(grandTotal)}
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">
-                          {paidAmount > 0
-                            ? `${formatCurrency(paidAmount)} paid`
-                            : 'Not paid'}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* ── Row 2: Diagnosis + Doctor ── */}
-                    <div className="flex items-start gap-2 mb-3">
-                      <FileText className="size-3.5 text-muted-foreground/70 mt-0.5 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-foreground leading-snug">{item.diagnosis || 'No diagnosis recorded'}</p>
-                        {item.notes && (
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{item.notes}</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Row 3: Financial snapshot */}
-                    {sale && (
-                      <div className="rounded-xl bg-muted/50 border border-border/50 p-3 sm:p-3.5">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                          {/* Consultation fee */}
-                          <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
-                            <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Consultation</div>
-                            <div className="text-sm font-semibold text-foreground mt-0.5 tabular-nums">{formatCurrency(consultationFee)}</div>
-                          </div>
-                          {/* Medicines */}
-                          <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
-                            <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Medicines</div>
-                            <div className="text-sm font-semibold text-foreground mt-0.5 tabular-nums">{formatCurrency(medicinesTotal)}</div>
-                          </div>
-                          {/* Items count */}
-                          <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
-                            <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Items</div>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <Pill className="size-3.5 text-muted-foreground/70 shrink-0" />
-                              <span className="text-sm font-semibold text-foreground tabular-nums">{saleItems.length}</span>
-                              {sale.invoice_number && (
-                                <span className="text-[10px] text-muted-foreground/60 ml-1 font-mono">{sale.invoice_number}</span>
-                              )}
-                            </div>
-                          </div>
-                          {/* Payment status */}
-                          <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
-                            <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Payment</div>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              {payStatus ? (
-                                <span className={cn(
-                                  'inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border',
-                                  payStatus.cls,
-                                )}>
-                                  {payStatus.label}
-                                </span>
-                              ) : (
-                                <span className="text-[11px] text-muted-foreground/60">—</span>
-                              )}
-                              {outstandingAmount > 0 && (
-                                <span className="text-[11px] font-medium text-red-500 tabular-nums">
-                                  {formatCurrency(outstandingAmount)} due
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {/* Total breakdown row */}
-                        <div className="mt-2 pt-2 border-t border-border/40 flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">{formatCurrency(consultationFee)} fee + {formatCurrency(medicinesTotal)} medicines</span>
-                          <span className="font-bold text-foreground text-sm tabular-nums">Total {formatCurrency(grandTotal)}</span>
-                        </div>
-                      </div>
+                <div key={item.id}>
+                  <div
+                    onClick={() => router.visit(`/clinic/visit/${item.id}`)}
+                    className={cn(
+                      'group relative rounded-2xl border border-border/80 bg-card',
+                      'hover:border-primary/30 hover:shadow-sm hover:bg-muted/20',
+                      'transition-all duration-200 cursor-pointer overflow-hidden',
                     )}
+                  >
+                    {/* Top accent bar */}
+                    <div className={cn(
+                      'h-1 w-full',
+                      item.status === 'completed' && 'bg-emerald-500/50',
+                      item.status === 'follow-up' && 'bg-amber-500/50',
+                      item.status === 'scheduled' && 'bg-blue-500/50',
+                    )} />
 
-                    {/* ── Row 4: Action ── */}
-                    <div className="flex items-center justify-end mt-3">
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-primary/80 group-hover:text-primary transition-colors">
-                        View visit details
-                        <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-                      </span>
+                    <div className="p-4 sm:p-5">
+                      {/* Row 1: Date · Status · Cost */}
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={cn(
+                            'flex items-center justify-center size-9 rounded-xl shrink-0 ring-1 ring-border/50',
+                            cfg.bgClass
+                          )}>
+                            <StatusIcon className="size-[18px]" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">{formatDate(visitDate)}</span>
+                              <span className="text-[11px] text-muted-foreground/70 hidden sm:inline">{relativeTime(visitDate)}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <Badge variant="outline" className={cn(
+                                'text-[10px] px-1.5 py-0 h-4 font-medium',
+                                item.status === 'completed' && 'text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
+                                item.status === 'follow-up' && 'text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+                                item.status === 'scheduled' && 'text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800',
+                              )}>
+                                {cfg.label}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <div className="text-base font-bold text-foreground tabular-nums leading-none">{formatCurrency(grandTotal)}</div>
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            {paidAmount > 0 ? `${formatCurrency(paidAmount)} paid` : 'Not paid'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Row 2: Diagnosis */}
+                      <div className="flex items-start gap-2 mb-3">
+                        <FileText className="size-3.5 text-muted-foreground/70 mt-0.5 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground leading-snug">{item.diagnosis || 'No diagnosis recorded'}</p>
+                          {item.notes && (
+                            <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{item.notes}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Row 3: Financial snapshot */}
+                      {sale && (
+                        <div className="rounded-xl bg-muted/50 border border-border/50 p-3 sm:p-3.5">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                            <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
+                              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Consultation</div>
+                              <div className="text-sm font-semibold text-foreground mt-0.5 tabular-nums">{formatCurrency(consultationFee)}</div>
+                            </div>
+                            <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
+                              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Medicines</div>
+                              <div className="text-sm font-semibold text-foreground mt-0.5 tabular-nums">{formatCurrency(medicinesTotal)}</div>
+                            </div>
+                            <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
+                              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Items</div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <Pill className="size-3.5 text-muted-foreground/70 shrink-0" />
+                                <span className="text-sm font-semibold text-foreground tabular-nums">{saleItems.length}</span>
+                              </div>
+                            </div>
+                            <div className="rounded-lg bg-background/60 px-2.5 py-2 border border-border/30">
+                              <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Payment</div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {payStatus ? (
+                                  <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border', payStatus.cls)}>
+                                    {payStatus.label}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-muted-foreground/60">—</span>
+                                )}
+                                {outstandingAmount > 0 && (
+                                  <span className="text-[11px] font-medium text-red-500 tabular-nums">{formatCurrency(outstandingAmount)} due</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Row 4: Actions */}
+                      <div className="flex items-center justify-between mt-3">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(item); setDeleteReason('') }}
+                          className="inline-flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 className="size-3.5" /> Delete visit
+                        </button>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-primary/80 group-hover:text-primary transition-colors">
+                          View visit details
+                          <ChevronRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -254,6 +254,37 @@ export default function VisitsTimeline({ consultations, visits, salesMap }: Visi
           </p>
         </div>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }}>
+        <DialogContent className="sm:max-w-md gap-0 p-0">
+          <DialogHeader className="p-5 pb-0">
+            <DialogTitle className="text-base flex items-center gap-2 text-red-500">
+              <Trash2 className="size-5" />
+              Delete Visit
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground pt-1">
+              This will delete the visit and its linked sale. Inventory, balances, and financial effects will be reversed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for deletion</label>
+              <input
+                type="text" value={deleteReason} onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder="e.g. Duplicate entry, wrong diagnosis..."
+                className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setDeleteTarget(null); setDeleteReason('') }} className="flex-1">Cancel</Button>
+              <Button onClick={handleDelete} disabled={isDeleting} className="flex-1 gap-1.5 bg-red-600 hover:bg-red-700">
+                <Trash2 className="size-4" /> {isDeleting ? 'Deleting...' : 'Delete Visit'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
