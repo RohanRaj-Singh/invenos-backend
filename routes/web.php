@@ -23,6 +23,7 @@ Route::prefix('inventory')->group(function () {
     Route::get('/movements', [InventoryController::class, 'movements'])->name('inventory.movements');
     Route::get('/low-stock', [InventoryController::class, 'lowStock'])->name('inventory.low-stock');
     Route::get('/valuation', [InventoryController::class, 'valuation'])->name('inventory.valuation');
+    Route::post('/adjust', [InventoryController::class, 'adjust'])->name('inventory.adjust');
     Route::get('/add', [ProductController::class, 'create'])->name('inventory.create');
     Route::post('/', [ProductController::class, 'store'])->name('inventory.store');
     Route::get('/product/{id}', [ProductController::class, 'show'])->name('inventory.show');

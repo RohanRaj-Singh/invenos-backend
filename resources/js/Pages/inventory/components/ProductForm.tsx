@@ -53,7 +53,9 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   const [barcode, setBarcode] = useState(product?.barcode || '')
   const [sku, setSku] = useState(product?.sku || generatedSku || '')
   const [openingStock, setOpeningStock] = useState(isEditing ? String(product?.stock_quantity ?? '') : '')
-  const [lowStockThreshold, setLowStockThreshold] = useState(String(product?.low_stock_threshold ?? '100'))
+  const [lowStockThreshold, setLowStockThreshold] = useState<string>(
+    product?.low_stock_threshold != null ? String(product.low_stock_threshold) : ''
+  )
   const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? true)
   const [description, setDescription] = useState('')
 
@@ -177,7 +179,9 @@ export default function ProductForm({ mode, categories = [], product = null, gen
       selling_units: sellingUnitsOut,
       packaging,
       stock_quantity: stockQty,
-      low_stock_threshold: parseInt(lowStockThreshold) || 100,
+      low_stock_threshold: lowStockThreshold.trim() !== '' && Number.isFinite(Number(lowStockThreshold))
+        ? Number(lowStockThreshold)
+        : (isEditing ? (product?.low_stock_threshold ?? 0) : 0),
       default_purchase_cost: purchaseCost ? parseFloat(purchaseCost) : null,
       allow_negative_stock: allowNegativeStock,
       status: stockQty === 0 ? 'out-of-stock' : 'in-stock',
@@ -185,7 +189,8 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   }, [
     name, sku, skuSequence, category, barcode, description, baseUnitId,
     relationships, sellingPrice,
-    openingStock, lowStockThreshold, purchaseCost, allowNegativeStock, categories,
+    openingStock, lowStockThreshold, purchaseCost, allowNegativeStock,
+    isEditing, product, categories,
   ])
 
   // ── Save handlers ──
