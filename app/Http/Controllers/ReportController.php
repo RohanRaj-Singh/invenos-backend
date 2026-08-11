@@ -85,7 +85,22 @@ class ReportController extends Controller
     {
         $filters = ReportFilters::fromRequest(request());
         return Inertia::render('reports/StockReport', [
-            'report' => $this->inventoryReport->stockSummary($filters),
+            'report' => $this->inventoryReport->stockReport($filters),
+            'categories' => \App\Models\Category::orderBy('name')->get(),
+            'filters' => $filters->toArray(),
+        ]);
+    }
+
+    /**
+     * Print view for the Stock Report — renders the full filtered dataset as
+     * a professional branded document (mirrors the invoice print flow).
+     */
+    public function printStock(): Response
+    {
+        $filters = ReportFilters::fromRequest(request()->merge(['per_page' => 0]));
+        return Inertia::render('reports/StockPrint', [
+            'report' => $this->inventoryReport->stockReport($filters),
+            'settings' => app(\App\Domains\Settings\Services\SettingService::class)->get(),
             'filters' => $filters->toArray(),
         ]);
     }
@@ -263,16 +278,40 @@ class ReportController extends Controller
 
     public function exportStockCsv()
     {
-        $filters = ReportFilters::fromRequest(request());
-        $data = $this->inventoryReport->stockSummary($filters);
+        return $this->exportStock('csv');
+    }
+
+    public function exportStockExcel()
+    {
+        return $this->exportStock('excel');
+    }
+
+    /**
+     * Export the FULL filtered stock dataset (not the current page).
+     */
+    private function exportStock(string $format)
+    {
+        $filters = ReportFilters::fromRequest(request()->merge(['per_page' => 0]));
+        $data = $this->inventoryReport->stockReport($filters);
+
+        $headers = ['Product', 'SKU', 'Category', 'Unit', 'Stock', 'Threshold', 'Sold', 'Purchased', 'Returns', 'Value', 'Status'];
         $rows = array_map(fn($p) => [
             'Product' => $p['name'] ?? '',
             'SKU' => $p['sku'] ?? '',
-            'Category' => $p['category']['name'] ?? '',
+            'Category' => $p['category'] ?? '',
+            'Unit' => $p['unit'] ?? '',
             'Stock' => $p['stock_quantity'] ?? 0,
+            'Threshold' => $p['low_stock_threshold'] ?? 0,
+            'Sold' => $p['sold'] ?? 0,
+            'Purchased' => $p['purchased'] ?? 0,
+            'Returns' => $p['returns'] ?? 0,
+            'Value' => $p['value'] ?? 0,
             'Status' => $p['status'] ?? '',
         ], $data['products'] ?? []);
-        return $this->export->csv($rows, ['Product', 'SKU', 'Category', 'Stock', 'Status'], 'stock-summary');
+
+        return $format === 'excel'
+            ? $this->export->excel($rows, $headers, 'stock-summary')
+            : $this->export->csv($rows, $headers, 'stock-summary');
     }
 
     public function exportStockLedgerCsv()

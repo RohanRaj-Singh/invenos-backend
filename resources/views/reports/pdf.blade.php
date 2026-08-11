@@ -178,6 +178,8 @@
     @php
         $numeric = array_filter($summary, fn($v) => is_numeric($v));
         $chunks = array_chunk(array_slice($numeric, 0, 8), 4, true);
+        // Count-type keys render as plain numbers; everything else is currency.
+        $countKeys = ['total_products','total_stock','low_stock','out_of_stock','negative_stock','opening_stock','closing_stock','purchased','sold','sale_returns','purchase_returns','adjustments','return_count','invoice_count','transaction_count','total_transactions','financial_events','operational_events','payment_count','adjustment_count','negative_stock_count'];
     @endphp
     @foreach($chunks as $chunk)
     <div class="summary-grid">
@@ -185,11 +187,49 @@
         <div class="cell">
             <div class="s-label">{{ ucwords(str_replace('_', ' ', $label)) }}</div>
             <div class="s-value {{ in_array($label, ['net_profit','gross_profit']) && $value >= 0 ? 'emerald' : (in_array($label, ['total_expenses','cash_paid']) && $value > 0 ? 'red' : '') }}">
-                Rs {{ number_format((float)$value) }}
+                @if(in_array($label, $countKeys))
+                    {{ number_format((float)$value) }}
+                @else
+                    Rs {{ number_format((float)$value) }}
+                @endif
             </div>
         </div>
         @endforeach
     </div>
+    @endforeach
+    @endif
+
+    <!-- Stock movement -->
+    @if(!empty($movement) && $title === 'Stock Report')
+    <div class="section-heading">Inventory Movement</div>
+    <table class="data" style="max-width:360px;">
+        <tbody>
+            <tr><td>Opening Stock</td><td class="text-right">{{ number_format($movement['opening_stock'] ?? 0) }}</td></tr>
+            <tr><td>Purchased</td><td class="text-right">+{{ number_format($movement['purchased'] ?? 0) }}</td></tr>
+            <tr><td>Sold</td><td class="text-right">&minus;{{ number_format($movement['sold'] ?? 0) }}</td></tr>
+            <tr><td>Sale Returns</td><td class="text-right">+{{ number_format($movement['sale_returns'] ?? 0) }}</td></tr>
+            <tr><td>Purchase Returns</td><td class="text-right">&minus;{{ number_format($movement['purchase_returns'] ?? 0) }}</td></tr>
+            <tr><td>Adjustments</td><td class="text-right">{{ (($movement['adjustments'] ?? 0) >= 0 ? '+' : '&minus;') . number_format(abs($movement['adjustments'] ?? 0)) }}</td></tr>
+            <tr><td>Closing Stock</td><td class="text-right">{{ number_format($movement['closing_stock'] ?? 0) }}</td></tr>
+        </tbody>
+    </table>
+    @endif
+
+    <!-- Inventory attention -->
+    @if(!empty($attention) && $title === 'Stock Report')
+    <div class="section-heading">Needs Attention</div>
+    @foreach(['negative' => 'Negative Stock', 'out_of_stock' => 'Out of Stock', 'low_stock' => 'Low Stock'] as $key => $label)
+        @if(!empty($attention[$key]))
+        <div style="font-size:10px;font-weight:600;margin:8px 0 3px;text-transform:uppercase;color:#6b7280;">{{ $label }}</div>
+        <table class="data" style="margin-bottom:8px;">
+            @foreach($attention[$key] as $a)
+            <tr>
+                <td>{{ $a['name'] }}</td>
+                <td class="text-right">{{ number_format($a['stock_quantity']) }} {{ $a['unit'] }}</td>
+            </tr>
+            @endforeach
+        </table>
+        @endif
     @endforeach
     @endif
 
@@ -297,10 +337,11 @@
     <div class="section-heading">Products</div>
     <table class="data">
         <thead><tr>
-            <th>Product</th>
-            <th style="width:14%">SKU</th>
+            <th style="width:26%">Product</th>
+            <th style="width:12%">SKU</th>
             <th style="width:16%">Category</th>
-            <th style="width:12%;text-align:right;">Stock</th>
+            <th style="width:8%;text-align:right;">Stock</th>
+            <th style="width:14%;text-align:right;">Value</th>
             <th style="width:12%;text-align:center;">Status</th>
         </tr></thead>
         <tbody>
@@ -310,6 +351,7 @@
                 <td>{{ $r['sku'] }}</td>
                 <td>{{ $r['category'] }}</td>
                 <td class="text-right">{{ number_format((float)$r['stock']) }}</td>
+                <td class="text-right">Rs {{ number_format((float)($r['value'] ?? 0)) }}</td>
                 <td class="text-center"><span class="badge badge-{{ $r['status'] }}">{{ ucfirst($r['status']) }}</span></td>
             </tr>
             @endforeach
@@ -327,7 +369,11 @@
         <div class="cell">
             <div class="s-label">{{ ucwords(str_replace('_', ' ', $k)) }}</div>
             <div class="s-value {{ in_array($k, ['closing_balance','closing_cash']) && $v >= 0 ? 'emerald' : (in_array($k, ['total_money_out']) ? 'red' : '') }}">
-                {{ is_numeric($v) ? 'Rs ' . number_format((float)$v) : $v }}
+                @if(in_array($k, $countKeys ?? []))
+                    {{ number_format((float)$v) }}
+                @else
+                    {{ is_numeric($v) ? 'Rs ' . number_format((float)$v) : $v }}
+                @endif
             </div>
         </div>
         @endforeach

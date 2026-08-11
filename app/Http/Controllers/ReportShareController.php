@@ -141,24 +141,40 @@ class ReportShareController extends Controller
 
     private function stockReportData(ReportFilters $filters): array
     {
-        $data = $this->inventory->stockSummary($filters);
-        $products = $data['products'] ?? [];
+        // Full filtered dataset — never a single pagination page.
+        $data = $this->inventory->stockReport(new ReportFilters(
+            dateFrom: $filters->dateFrom,
+            dateTo: $filters->dateTo,
+            categoryId: $filters->categoryId,
+            status: $filters->status,
+            search: $filters->search,
+            perPage: 0,
+        ));
+
         $rows = [];
-        foreach ($products as $p) {
-            $a = $this->toArray($p);
+        foreach ($data['products'] ?? [] as $p) {
             $rows[] = [
-                'product' => $a['name'] ?? '—',
-                'sku' => $a['sku'] ?? '—',
-                'category' => $a['category']['name'] ?? '—',
-                'stock' => (float) ($a['stock_quantity'] ?? 0),
-                'status' => $a['status'] ?? '—',
+                'product' => $p['name'] ?? '—',
+                'sku' => $p['sku'] ?? '—',
+                'category' => $p['category'] ?? '—',
+                'unit' => $p['unit'] ?? '—',
+                'stock' => (float) ($p['stock_quantity'] ?? 0),
+                'threshold' => (float) ($p['low_stock_threshold'] ?? 0),
+                'sold' => (float) ($p['sold'] ?? 0),
+                'purchased' => (float) ($p['purchased'] ?? 0),
+                'value' => (float) ($p['value'] ?? 0),
+                'status' => $p['status'] ?? '—',
             ];
         }
+
         return [
             'settings' => $this->getBusinessSettings(),
             'title' => 'Stock Report',
-            'subtitle' => 'Current inventory levels',
+            'subtitle' => 'Inventory levels & movement — ' . date('d M Y', strtotime($data['period']['from'])) . ' to ' . date('d M Y', strtotime($data['period']['to'])),
             'summary' => $data['summary'] ?? [],
+            'movement' => $data['movement'] ?? [],
+            'attention' => $data['attention'] ?? [],
+            'valuation' => $data['valuation'] ?? [],
             'rows' => $rows,
         ];
     }

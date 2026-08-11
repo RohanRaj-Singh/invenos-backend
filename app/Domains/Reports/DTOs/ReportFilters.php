@@ -16,6 +16,7 @@ class ReportFilters
         public readonly ?string $status = null,
         public readonly ?string $search = null,
         public readonly int $perPage = 25,
+        public readonly ?int $page = null,
         public readonly string $sortBy = 'date',
         public readonly string $sortDir = 'desc',
     ) {}
@@ -32,6 +33,7 @@ class ReportFilters
             status: $request->get('status'),
             search: $request->get('search'),
             perPage: $request->integer('per_page', 25),
+            page: $request->integer('page', 0) ?: null,
             sortBy: $request->get('sort_by', 'date'),
             sortDir: $request->get('sort_dir', 'desc'),
         );
@@ -49,6 +51,7 @@ class ReportFilters
             'status' => $this->status,
             'search' => $this->search,
             'per_page' => $this->perPage,
+            'page' => $this->page,
             'sort_by' => $this->sortBy,
             'sort_dir' => $this->sortDir,
         ];

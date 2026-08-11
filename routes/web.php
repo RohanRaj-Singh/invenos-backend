@@ -144,6 +144,7 @@ Route::prefix('reports')->group(function () {
     Route::get('/sales/top-products', [ReportController::class, 'topProducts'])->name('reports.sales.top-products');
     Route::get('/purchases', [ReportController::class, 'purchaseRegister'])->name('reports.purchases');
     Route::get('/stock', [ReportController::class, 'stockSummary'])->name('reports.stock');
+    Route::get('/stock/print', [ReportController::class, 'printStock'])->name('reports.stock.print');
     Route::get('/stock/ledger', [ReportController::class, 'stockLedger'])->name('reports.stock.ledger');
     Route::get('/stock/low-stock', [ReportController::class, 'lowStock'])->name('reports.stock.low-stock');
     Route::get('/customers/ledger', [ReportController::class, 'customerLedger'])->name('reports.customers.ledger');
@@ -154,6 +155,7 @@ Route::prefix('reports')->group(function () {
     Route::get('/sales/export/csv', [ReportController::class, 'exportSalesCsv'])->name('reports.sales.export.csv');
     Route::get('/purchases/export/csv', [ReportController::class, 'exportPurchasesCsv'])->name('reports.purchases.export.csv');
     Route::get('/stock/export/csv', [ReportController::class, 'exportStockCsv'])->name('reports.stock.export.csv');
+    Route::get('/stock/export/excel', [ReportController::class, 'exportStockExcel'])->name('reports.stock.export.excel');
     Route::get('/stock/ledger/export/csv', [ReportController::class, 'exportStockLedgerCsv'])->name('reports.stock.ledger.export.csv');
     Route::get('/stock/low-stock/export/csv', [ReportController::class, 'exportLowStockCsv'])->name('reports.stock.low-stock.export.csv');
     Route::get('/day-book/export/csv', [ReportController::class, 'exportDayBookCsv'])->name('reports.day-book.export.csv');
