@@ -144,28 +144,57 @@ class SalesReportService
      */
     public function profit(ReportFilters $filters): array
     {
-        $grossRevenue = Sale::whereBetween('date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
-            ->sum('grand_total');
+        $from = $filters->dateFrom ?? '2000-01-01';
+        $to = $filters->dateTo ?? now()->format('Y-m-d');
+
+        $grossRevenue = Sale::whereBetween('date', [$from, $to])->sum('grand_total');
 
         $returns = ReturnModel::where('type', 'SALE')
             ->where('status', 'completed')
-            ->whereBetween('return_date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
+            ->whereBetween('return_date', [$from, $to])
             ->sum('grand_total');
 
         $netRevenue = (float) $grossRevenue - (float) $returns;
 
-        // COGS from sale_items.cost_price �� the actual cost data stored per line item
+        // Returned sale IDs — exclude from COGS to avoid double-penalizing
+        $returnedSaleIds = ReturnModel::where('type', 'SALE')
+            ->where('status', 'completed')
+            ->whereBetween('return_date', [$from, $to])
+            ->pluck('reference_id');
+
         $cogs = (float) DB::table('sale_items')
             ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
-            ->whereBetween('sales.date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
+            ->whereBetween('sales.date', [$from, $to])
+            ->whereNotIn('sales.id', $returnedSaleIds)
             ->select(DB::raw('SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)) as cogs'))
             ->value('cogs') ?? 0;
 
         $grossProfit = $netRevenue - $cogs;
         $margin = $netRevenue > 0 ? round(($grossProfit / $netRevenue) * 100, 1) : 0;
 
-        $totalExpenses = (float) Expense::whereBetween('date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])->sum('amount');
+        $totalExpenses = (float) Expense::whereBetween('date', [$from, $to])->sum('amount');
         $netProfit = $grossProfit - $totalExpenses;
+
+        // Bill-wise profit per invoice
+        $billWise = Sale::with('items')
+            ->whereBetween('date', [$from, $to])
+            ->orderBy('date', 'desc')
+            ->get()
+            ->map(function ($sale) use ($returnedSaleIds) {
+                $cost = $sale->items->sum(fn($i) => ($i->base_quantity ?? 0) * ($i->cost_price ?? 0));
+                $returned = $returnedSaleIds->contains($sale->id);
+                return [
+                    'id' => $sale->id,
+                    'invoice_number' => $sale->invoice_number,
+                    'date' => $sale->date,
+                    'customer_name' => $sale->customer_name ?? 'Walk-in',
+                    'revenue' => round($sale->grand_total),
+                    'cogs' => round($cost),
+                    'profit' => round($sale->grand_total - $cost),
+                    'margin_pct' => $sale->grand_total > 0 ? round(($sale->grand_total - $cost) / $sale->grand_total * 100, 1) : 0,
+                    'returned' => $returned,
+                ];
+            });
 
         return [
             'revenue' => round($grossRevenue),
@@ -176,6 +205,7 @@ class SalesReportService
             'gross_margin_pct' => $margin,
             'total_expenses' => round($totalExpenses),
             'net_profit' => round($netProfit),
+            'bill_wise' => $billWise,
         ];
     }
 }

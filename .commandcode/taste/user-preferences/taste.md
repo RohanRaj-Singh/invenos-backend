@@ -14,3 +14,6 @@
 - Report pages use shared components: ReportLayout, ReportToolbar, DateFilter, SummaryCards, ReportRow. Confidence: 0.9
 - Report routes should use controller methods, not closures. Confidence: 0.9
 - Expects features to be fully wired through all UI layers — sidebar navigation, mobile nav, and landing pages — not just the page itself. Confidence: 0.8
+- Reports should include bill-wise / per-transaction detail lists alongside summary cards — not just aggregated totals. Confidence: 0.8
+- When redesigning report features, proactively investigate data anomalies (e.g. inflated losses) before implementing UI changes. Confidence: 0.7
+- Expects new report list views to reuse existing shared table components (e.g. ReportTable) rather than building from scratch. Confidence: 0.9
