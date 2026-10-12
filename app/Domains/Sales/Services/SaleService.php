@@ -117,9 +117,8 @@ class SaleService
 
                 $baseQty = $itemData->packagingQuantity * $authoritativeBaseUnitQty;
 
-                // Calculate COGS using best-available-cost fallback
+                // Calculate per-unit cost using best-available-cost fallback
                 $costPrice = $product->last_purchase_cost ?? $product->default_purchase_cost ?? 0;
-                $cogs = $costPrice * $baseQty;
 
                 // Resolve the display unit name through ProductUnitService so raw
                 // unit_ids like 'kg' become 'Kilogram (kg)', and display names pass through.
@@ -143,7 +142,7 @@ class SaleService
                     'base_unit_quantity' => $authoritativeBaseUnitQty,
                     'base_quantity' => $baseQty,
                     'unit_price' => $itemData->unitPrice,
-                    'cost_price' => $cogs,
+                    'cost_price' => $costPrice,
                     'total' => $itemData->total,
                     'discount_pct' => $itemData->discountPct,
                     'category' => $itemData->category ?: ($product->category?->name ?? ''),

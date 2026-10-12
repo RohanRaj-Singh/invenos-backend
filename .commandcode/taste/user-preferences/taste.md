@@ -17,3 +17,5 @@
 - Reports should include bill-wise / per-transaction detail lists alongside summary cards — not just aggregated totals. Confidence: 0.8
 - When redesigning report features, proactively investigate data anomalies (e.g. inflated losses) before implementing UI changes. Confidence: 0.7
 - Expects new report list views to reuse existing shared table components (e.g. ReportTable) rather than building from scratch. Confidence: 0.9
+- Audit reports and analysis deliverables should be written for a non-technical audience — explain flaws and business impact in plain language, not just technical terms. Confidence: 0.8
+- Validate calculations against real data (e.g. import SQL dumps, run queries) before trusting reported numbers. Confidence: 0.8
