@@ -13,3 +13,4 @@
 - Frontend: React + TypeScript with Inertia.js. Confidence: 0.9
 - Report pages use shared components: ReportLayout, ReportToolbar, DateFilter, SummaryCards, ReportRow. Confidence: 0.9
 - Report routes should use controller methods, not closures. Confidence: 0.9
+- Expects features to be fully wired through all UI layers — sidebar navigation, mobile nav, and landing pages — not just the page itself. Confidence: 0.8
