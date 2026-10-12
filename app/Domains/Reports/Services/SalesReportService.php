@@ -3,6 +3,7 @@
 namespace App\Domains\Reports\Services;
 
 use App\Domains\Reports\DTOs\ReportFilters;
+use App\Models\Expense;
 use App\Models\Sale;
 use App\Models\ReturnModel;
 use Illuminate\Support\Facades\DB;
@@ -163,6 +164,9 @@ class SalesReportService
         $grossProfit = $netRevenue - $cogs;
         $margin = $netRevenue > 0 ? round(($grossProfit / $netRevenue) * 100, 1) : 0;
 
+        $totalExpenses = (float) Expense::whereBetween('date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])->sum('amount');
+        $netProfit = $grossProfit - $totalExpenses;
+
         return [
             'revenue' => round($grossRevenue),
             'sale_returns' => round($returns),
@@ -170,6 +174,8 @@ class SalesReportService
             'cogs' => round($cogs),
             'gross_profit' => round($grossProfit),
             'gross_margin_pct' => $margin,
+            'total_expenses' => round($totalExpenses),
+            'net_profit' => round($netProfit),
         ];
     }
 }

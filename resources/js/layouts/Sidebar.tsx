@@ -203,6 +203,7 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
               <button onClick={() => handleNav('/reports/purchases')} className={subLinkClass('/reports/purchases')}>Purchase Report</button>
               <button onClick={() => handleNav('/reports/stock')} className={subLinkClass('/reports/stock')}>Stock Report</button>
               <button onClick={() => handleNav('/reports/financial-overview')} className={subLinkClass('/reports/financial-overview')}>Financial Overview</button>
+              <button onClick={() => handleNav('/reports/pnl')} className={subLinkClass('/reports/pnl')}>Profit & Loss</button>
               <button onClick={() => handleNav('/reports/product-ledger')} className={subLinkClass('/reports/product-ledger')}>Product Ledger</button>
             </div>
           )}

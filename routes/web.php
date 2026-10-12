@@ -164,7 +164,7 @@ Route::prefix('reports')->group(function () {
     Route::get('/share/download/{path}', [\App\Http\Controllers\ReportShareController::class, 'download'])->name('reports.share.download');
     // Legacy / backup pages
     Route::get('/cash-flow', fn () => Inertia::render('reports/CashFlowReport'))->name('reports.cash-flow');
-    Route::get('/pnl', fn () => Inertia::render('reports/PnLReport'))->name('reports.pnl');
+    Route::get('/pnl', [ReportController::class, 'profit'])->name('reports.pnl');
     Route::get('/balance-sheet', fn () => Inertia::render('reports/BalanceSheetReport'))->name('reports.balance-sheet');
     Route::get('/party', fn () => Inertia::render('reports/PartyReport'))->name('reports.party');
 });

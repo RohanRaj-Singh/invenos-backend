@@ -1,0 +1,15 @@
+# User Preferences
+- Use graphify to explore the codebase before making changes. Confidence: 0.8
+- Enter plan mode and write a structured plan before implementing. Confidence: 0.8
+- Prefer minimal, surgical changes — fix what's broken, don't over-engineer or add unnecessary files. Confidence: 0.9
+- Follow existing codebase patterns rather than introducing new ones. Confidence: 0.9
+- Run tests and type checks after changes to verify correctness. Confidence: 0.8
+- Update graphify after making code changes. Confidence: 0.8
+- Explicitly document scope: what's included and what's skipped. Confidence: 0.8
+- Distinguish pre-existing failures from new regressions. Confidence: 0.8
+- Prefers concise, direct answers to status questions (e.g., "Is our page ready?" → short confirmation + how to verify). Confidence: 0.7
+- Likes honest risk reporting — call out untested areas or low-risk assumptions. Confidence: 0.7
+- Backend: Laravel with Domain-Driven Design structure (`app/Domains/{Domain}/Services/`). Confidence: 0.9
+- Frontend: React + TypeScript with Inertia.js. Confidence: 0.9
+- Report pages use shared components: ReportLayout, ReportToolbar, DateFilter, SummaryCards, ReportRow. Confidence: 0.9
+- Report routes should use controller methods, not closures. Confidence: 0.9
