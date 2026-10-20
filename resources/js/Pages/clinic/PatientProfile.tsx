@@ -7,8 +7,8 @@ import VisitsTimeline from './components/VisitsTimeline'
 import PrescriptionsList from './components/PrescriptionsList'
 import PaymentsOverview from './components/PaymentsOverview'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useLifecycleAction } from '@/features/shared/use-lifecycle-action'
 
 const tabs = [
   { id: 'visits', label: 'Visits', icon: Stethoscope },
@@ -26,15 +26,14 @@ export default function PatientProfilePage() {
   const [activeTab, setActiveTab] = useState<TabId>('visits')
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
-  const [isDeleting, setIsDeleting] = useState(false)
+  const { run, processing: isDeleting } = useLifecycleAction()
 
   const handleDelete = () => {
-    setIsDeleting(true)
-    router.delete(`/contacts/${patient.id}`, {
+    run({
+      url: `/contacts/${patient.id}`,
+      method: 'delete',
       data: { reason: deleteReason || 'Deleted from clinic module' },
-      onSuccess: () => router.visit('/clinic', { preserveState: false }),
-      onError: (err) => { toast.error(Object.values(err).join(', ')); setIsDeleting(false); setShowDeleteDialog(false) },
-      onFinish: () => setIsDeleting(false),
+      onDone: () => router.visit('/clinic', { preserveState: false }),
     })
   }
 

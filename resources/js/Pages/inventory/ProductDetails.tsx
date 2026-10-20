@@ -24,7 +24,7 @@ import AdjustStockDialog from './components/AdjustStockDialog'
 import { formatCurrency } from '@/lib/format'
 import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
+import { useLifecycleAction } from '@/features/shared/use-lifecycle-action'
 
 interface BackendProduct {
   id: number
@@ -56,7 +56,19 @@ export default function ProductDetailsPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showArchiveDialog, setShowArchiveDialog] = useState(false)
   const [actionReason, setActionReason] = useState('')
-  const [processing, setProcessing] = useState(false)
+  const { run, processing } = useLifecycleAction()
+
+  const lifecycle = ((props as any)?.lifecycle ?? { can_delete: true, delete_blocker: null }) as {
+    can_delete: boolean
+    delete_blocker: { sales: number; purchases: number } | null
+  }
+  const canDelete = lifecycle.can_delete !== false
+  const blocker = lifecycle.delete_blocker
+
+  const usageParts: string[] = []
+  if (blocker?.sales) usageParts.push(`${blocker.sales} sale${blocker.sales === 1 ? '' : 's'}`)
+  if (blocker?.purchases) usageParts.push(`${blocker.purchases} purchase${blocker.purchases === 1 ? '' : 's'}`)
+  const usageText = usageParts.join(' and ')
 
   const costPrice = product ? (product.last_purchase_cost ?? product.default_purchase_cost ?? 0) : 0
   const unitName = (product as any).base_unit_name || product?.base_unit_id || 'Unit'
@@ -349,57 +361,87 @@ export default function ProductDetailsPage() {
       {/* ── Delete Product Dialog ── */}
       <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <DialogContent className="sm:max-w-md gap-0 p-0">
-          <DialogHeader className="p-5 pb-0">
-            <DialogTitle className="text-base text-red-600 flex items-center gap-2">
-              <Trash2 className="size-4" />
-              Delete Product
-            </DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground pt-1">
-              This moves the product to the Recycle Bin. Only products with no stock and no transaction history can be deleted. Otherwise, archive instead.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-5 space-y-4">
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 text-sm">
-              <p className="font-medium text-amber-700 dark:text-amber-400">Impact preview:</p>
-              <ul className="mt-1.5 text-xs text-amber-600 dark:text-amber-300 space-y-0.5">
-                <li>• Product moved to Recycle Bin</li>
-                <li>• Historical transactions preserved</li>
-                <li>• Inventory not affected</li>
-              </ul>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for deletion</label>
-              <textarea
-                value={actionReason}
-                onChange={(e) => setActionReason(e.target.value)}
-                placeholder="e.g. No longer sold, duplicate entry..."
-                rows={3}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring resize-none"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1" disabled={processing}>Cancel</Button>
-              <Button variant="destructive" onClick={() => {
-                setProcessing(true)
-                const reason = actionReason.trim() || 'No reason provided'
-                router.delete(`/inventory/product/${product.id}`, {
-                  data: { reason },
-                  onSuccess: () => {
-                    toast.success(`Product '${product.name}' deleted.`)
-                    router.visit('/inventory', { preserveState: false })
-                  },
-                  onError: (errs) => {
-                    toast.error(Object.values(errs)[0] as string || 'Failed to delete product')
-                    setProcessing(false)
-                    setShowDeleteDialog(false)
-                  },
-                  onFinish: () => setProcessing(false),
-                })
-              }} className="flex-1 gap-1.5" disabled={processing}>
-                <Trash2 className="size-3.5" /> {processing ? 'Deleting...' : 'Delete Product'}
-              </Button>
-            </div>
-          </div>
+          {canDelete ? (
+            <>
+              <DialogHeader className="p-5 pb-0">
+                <DialogTitle className="text-base text-red-600 flex items-center gap-2">
+                  <Trash2 className="size-4" />
+                  Delete Product
+                </DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground pt-1">
+                  This moves the product to the Recycle Bin, where you can restore it later. Products used in sales or purchases can't be deleted — archive those instead.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="p-5 space-y-4">
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 text-sm">
+                  <p className="font-medium text-amber-700 dark:text-amber-400">Impact preview:</p>
+                  <ul className="mt-1.5 text-xs text-amber-600 dark:text-amber-300 space-y-0.5">
+                    <li>• Product moved to Recycle Bin</li>
+                    <li>• Historical transactions preserved</li>
+                    <li>• Inventory not affected</li>
+                  </ul>
+                </div>
+                <div>
+                  <label htmlFor="delete-reason" className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for deletion</label>
+                  <textarea
+                    id="delete-reason"
+                    value={actionReason}
+                    onChange={(e) => setActionReason(e.target.value)}
+                    placeholder="e.g. No longer sold, duplicate entry..."
+                    rows={3}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 resize-none"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1" disabled={processing}>Cancel</Button>
+                  <Button variant="destructive" onClick={() => {
+                    const reason = actionReason.trim() || 'No reason provided'
+                    run({
+                      url: `/inventory/product/${product.id}`,
+                      method: 'delete',
+                      data: { reason },
+                      onDone: () => setShowDeleteDialog(false),
+                    })
+                  }} className="flex-1 gap-1.5" disabled={processing}>
+                    <Trash2 className="size-3.5" /> {processing ? 'Deleting...' : 'Delete Product'}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <DialogHeader className="p-5 pb-0">
+                <DialogTitle className="text-base text-red-600 flex items-center gap-2">
+                  <Trash2 className="size-4" />
+                  Can't delete this product
+                </DialogTitle>
+                <DialogDescription className="text-sm text-muted-foreground pt-1">
+                  {usageText
+                    ? `This product is used in ${usageText}, so it can't be deleted — deleting it would break those records.`
+                    : "This product has transaction history, so it can't be deleted — deleting it would break those records."}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="p-5 space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Archive it instead. Archiving hides it from new transactions while keeping its history, and you can restore it later.
+                </p>
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 text-sm">
+                  <p className="font-medium text-amber-700 dark:text-amber-400">What archiving does:</p>
+                  <ul className="mt-1.5 text-xs text-amber-600 dark:text-amber-300 space-y-0.5">
+                    <li>• Product hidden from new transactions</li>
+                    <li>• Historical records remain intact</li>
+                    <li>• Can be unarchived later</li>
+                  </ul>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1">Cancel</Button>
+                  <Button onClick={() => { setShowDeleteDialog(false); setActionReason(''); setShowArchiveDialog(true) }} className="flex-1 gap-1.5 bg-amber-600 text-white hover:bg-amber-700 dark:hover:bg-amber-500">
+                    <Archive className="size-3.5" /> Archive instead
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -425,33 +467,25 @@ export default function ProductDetailsPage() {
               </ul>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for archiving</label>
+              <label htmlFor="archive-reason" className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for archiving</label>
               <textarea
+                id="archive-reason"
                 value={actionReason}
                 onChange={(e) => setActionReason(e.target.value)}
                 placeholder="e.g. Discontinued, seasonal product..."
                 rows={3}
-                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring resize-none"
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 resize-none"
               />
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setShowArchiveDialog(false)} className="flex-1" disabled={processing}>Cancel</Button>
               <Button variant="outline" onClick={() => {
-                setProcessing(true)
                 const reason = actionReason.trim() || 'No reason provided'
-                router.post(`/inventory/product/${product.id}/archive`, {
-                  reason,
-                }, {
-                  onSuccess: () => {
-                    toast.success(`Product '${product.name}' archived.`)
-                    setShowArchiveDialog(false)
-                  },
-                  onError: (errs) => {
-                    toast.error(Object.values(errs)[0] as string || 'Failed to archive product')
-                    setProcessing(false)
-                    setShowArchiveDialog(false)
-                  },
-                  onFinish: () => setProcessing(false),
+                run({
+                  url: `/inventory/product/${product.id}/archive`,
+                  method: 'post',
+                  data: { reason },
+                  onDone: () => setShowArchiveDialog(false),
                 })
               }} className="flex-1 gap-1.5 border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:hover:bg-amber-950/20" disabled={processing}>
                 <Archive className="size-3.5" /> {processing ? 'Archiving...' : 'Archive Product'}

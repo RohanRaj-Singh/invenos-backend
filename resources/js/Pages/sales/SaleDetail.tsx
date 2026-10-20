@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { formatCurrency, formatDate, formatDateTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
+import { useLifecycleAction } from '@/features/shared/use-lifecycle-action'
 
 interface BackendSaleItem {
   id: number
@@ -61,7 +61,7 @@ export default function SaleDetailPage() {
   const [showPayment, setShowPayment] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
-  const [deleting, setDeleting] = useState(false)
+  const { run, processing: deleting } = useLifecycleAction()
   const canProcessReturn = usePermission('sales', 'processReturn')
 
   if (!sale) {
@@ -291,20 +291,12 @@ export default function SaleDetailPage() {
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => { setShowDeleteDialog(false); setDeleteReason('') }} className="flex-1" disabled={deleting}>Cancel</Button>
               <Button variant="destructive" onClick={() => {
-                setDeleting(true)
                 const reason = deleteReason.trim() || 'No reason provided'
-                router.delete(`/sales/${sale.id}`, {
+                run({
+                  url: `/sales/${sale.id}`,
+                  method: 'delete',
                   data: { reason },
-                  onSuccess: () => {
-                    toast.success(`Sale ${sale.invoice_number} deleted. Inventory reversed.`)
-                    router.visit('/sales', { preserveState: false })
-                  },
-                  onError: (errs) => {
-                    toast.error(Object.values(errs)[0] as string || 'Failed to delete sale')
-                    setDeleting(false)
-                    setShowDeleteDialog(false)
-                  },
-                  onFinish: () => setDeleting(false),
+                  onDone: () => setShowDeleteDialog(false),
                 })
               }} className="flex-1 gap-1.5" disabled={deleting}>
                 <Trash2 className="size-3.5" />

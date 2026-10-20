@@ -1,9 +1,10 @@
 import { useState, useEffect, type ReactNode } from 'react'
-import { Head, usePage } from '@inertiajs/react'
+import { Head } from '@inertiajs/react'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import BottomNav from './BottomNav'
 import { cn } from '@/lib/utils'
+import { useFlashToasts } from '@/features/shared/use-flash-toasts'
 
 interface AppLayoutProps {
   children?: ReactNode
@@ -18,22 +19,12 @@ export default function AppLayout({ children, title }: AppLayoutProps) {
     }
     return false
   })
-  const { props } = usePage()
-  const flash = (props as any)?.flash || {}
+
+  useFlashToasts()
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
   }, [dark])
-
-  // Show flash messages as toasts when they arrive from the server
-  useEffect(() => {
-    if (flash.success) {
-      import('sonner').then(({ toast }) => toast.success(flash.success))
-    }
-    if (flash.error) {
-      import('sonner').then(({ toast }) => toast.error(flash.error))
-    }
-  }, [flash])
 
   return (
     <>

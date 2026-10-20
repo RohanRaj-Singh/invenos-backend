@@ -5,11 +5,12 @@ namespace App\Policies\Lifecycle;
 use App\Contracts\Lifecycle\Archivable;
 use App\Contracts\Lifecycle\Deletable;
 use App\Contracts\Lifecycle\PermanentDeletable;
+use App\Contracts\Lifecycle\Restorable;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User;
 
-class ProductPolicy implements Archivable, Deletable, PermanentDeletable
+class ProductPolicy implements Archivable, Deletable, Restorable, PermanentDeletable
 {
     public function canArchive(Model $record): void
     {
@@ -23,15 +24,29 @@ class ProductPolicy implements Archivable, Deletable, PermanentDeletable
 
     public function canDelete(Model $record): void
     {
-        /** @var Product $record */
-        // Stock quantity alone does not block deletion � if all transactions
+        // Stock quantity alone does not block deletion — if all transactions
         // have been reversed, remaining stock is cleaned up during delete.
+        throw_if(
+            $this->deleteBlocker($record) !== null,
+            'Cannot delete a product with transaction history. Archive it instead.'
+        );
+    }
 
-        $hasTransactions = \App\Models\SaleItem::where('product_id', $record->id)->exists()
-            || \App\Models\PurchaseBillItem::where('product_id', $record->id)->exists();
+    /**
+     * null when the product can be deleted, otherwise the usage counts that block it.
+     * Single source of truth for both canDelete() and the UI preflight.
+     */
+    public function deleteBlocker(Model $record): ?array
+    {
+        /** @var Product $record */
+        $sales = \App\Models\SaleItem::where('product_id', $record->id)->count();
+        $purchases = \App\Models\PurchaseBillItem::where('product_id', $record->id)->count();
 
-        throw_if($hasTransactions,
-            'Cannot delete a product with transaction history. Archive it instead.');
+        if ($sales === 0 && $purchases === 0) {
+            return null;
+        }
+
+        return ['sales' => $sales, 'purchases' => $purchases];
     }
 
     public function previewImpact(Model $record): array
@@ -52,6 +67,18 @@ class ProductPolicy implements Archivable, Deletable, PermanentDeletable
     public function executeDelete(Model $record, User $user): void
     {
         // No inventory reversal needed for products
+    }
+
+    // ─── Restore ───────────────────────────────────────────────
+
+    public function canRestore(Model $record): void
+    {
+        throw_if(!$record->trashed(), 'Product is not deleted.');
+    }
+
+    public function executeRestore(Model $record, User $user): void
+    {
+        // Product delete has no side effects to reverse.
     }
 
     public function canPermanentDelete(Model $record): void

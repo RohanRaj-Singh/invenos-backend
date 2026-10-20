@@ -19,3 +19,5 @@
 - Expects new report list views to reuse existing shared table components (e.g. ReportTable) rather than building from scratch. Confidence: 0.9
 - Audit reports and analysis deliverables should be written for a non-technical audience — explain flaws and business impact in plain language, not just technical terms. Confidence: 0.8
 - Validate calculations against real data (e.g. import SQL dumps, run queries) before trusting reported numbers. Confidence: 0.8
+- For frontend/UI work, explicitly wants the specialized react and UI/UX skills applied (e.g. ui-ux-pro-max, frontend-design) alongside graphify navigation. Confidence: 0.7
+- Designs and evaluates UI feedback for non-technical end users, not developers — avoids ambiguous or contradictory messages (e.g. a "deleted" toast when nothing was deleted); blocked/error states should explain why in plain language and offer a clear next step rather than a dead end. Confidence: 0.75

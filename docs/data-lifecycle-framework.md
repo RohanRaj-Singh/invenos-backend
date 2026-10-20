@@ -406,7 +406,7 @@ public function destroy(int $id)
 
 | Rule | Location | Why |
 |------|----------|-----|
-| "Product has stock → cannot delete" | `ProductPolicy::canDelete()` | State transition rule |
+| "Product has transaction history → cannot delete" | `ProductPolicy::canDelete()` | State transition rule |
 | "Sale has returns → cannot delete" | `SaleBusinessValidator` | Business rule (reusable across controllers) |
 | "User must be manager to delete" | Spatie permission gate | Cross-cutting concern |
 | "Will stock go negative?" | `SaleBusinessValidator` | Business rule (checked before confirm dialog) |
@@ -418,7 +418,7 @@ public function destroy(int $id)
 
 | Entity | Can Archive? | Can Delete? | Blocked If |
 |--------|-------------|-------------|------------|
-| **Product** | ✅ Always | ✅ If no stock AND no transactions | Has stock or has history → Archive instead |
+| **Product** | ✅ Always | ✅ If no transactions | Has transaction history → Archive instead |
 | **Contact** | ✅ Always | ✅ If no transactions | Has transactions → Archive instead |
 | **Category** | ✅ Always | ✅ If no products | Has products → Archive instead |
 | **Sale** | ❌ Not applicable | ✅ If no linked returns | Has returns → block |

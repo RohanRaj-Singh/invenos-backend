@@ -148,11 +148,18 @@ class ProductController extends Controller
             ->get()
             ->toArray();
 
+        $blocker = app(\App\Policies\Lifecycle\ProductPolicy::class)->deleteBlocker($product);
+
         return Inertia::render('inventory/ProductDetails', [
             'product' => $product->toArray(),
             'movements' => $movements,
             'purchases' => $purchases,
             'sales' => $sales,
+            'lifecycle' => [
+                'can_delete' => $blocker === null,
+                'delete_blocker' => $blocker,
+                'can_archive' => true,
+            ],
         ]);
     }
 
@@ -185,7 +192,7 @@ class ProductController extends Controller
         try {
             $this->lifecycle->delete($product, $reason, auth()->user());
             return redirect()->route('inventory.index')
-                ->with('success', "Product '{$product->name}' deleted. Archived instead if you need to keep records.");
+                ->with('success', "Product '{$product->name}' moved to the Recycle Bin.");
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }

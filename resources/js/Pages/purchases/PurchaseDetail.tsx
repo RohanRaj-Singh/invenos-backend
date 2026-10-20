@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
+import { useLifecycleAction } from '@/features/shared/use-lifecycle-action'
 
 interface BackendPurchaseItem {
   id: number
@@ -67,7 +67,7 @@ export default function PurchaseDetailPage() {
   const isAdmin = authUser?.role === 'admin'
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteReason, setDeleteReason] = useState('')
-  const [deleting, setDeleting] = useState(false)
+  const { run, processing: deleting } = useLifecycleAction()
   const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set())
 
   if (!purchase) {
@@ -288,23 +288,12 @@ export default function PurchaseDetailPage() {
             <Button
               variant="destructive"
               onClick={() => {
-                setDeleting(true)
                 const reason = deleteReason.trim() || 'No reason provided'
-                router.delete(`/purchases/${purchase.id}`, {
+                run({
+                  url: `/purchases/${purchase.id}`,
+                  method: 'delete',
                   data: { reason },
-                  onSuccess: () => {
-                    toast.success(`Purchase ${purchase.invoice_ref} deleted. Inventory reversed.`)
-                    router.visit('/purchases', { preserveState: false })
-                  },
-                  onError: (errs) => {
-                    const first = Object.values(errs)[0]
-                    toast.error(String(first || 'Failed to delete purchase'))
-                    setDeleting(false)
-                    setShowDeleteDialog(false)
-                  },
-                  onFinish: () => {
-                    setDeleting(false)
-                  },
+                  onDone: () => { setShowDeleteDialog(false); setDeleteReason('') },
                 })
               }}
               className="flex-1 gap-1.5"
