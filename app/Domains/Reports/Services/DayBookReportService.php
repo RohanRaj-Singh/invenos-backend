@@ -210,6 +210,7 @@ class DayBookReportService
         // COGS from sale_items.cost_price
         $cogs = (float) DB::table('sale_items')
             ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->whereNull('sales.deleted_at')
             ->whereBetween('sales.date', [$from, $to])
             ->select(DB::raw('SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)) as cogs'))
             ->value('cogs') ?? 0;

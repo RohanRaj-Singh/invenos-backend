@@ -6,6 +6,7 @@ use App\Domains\Reports\Services\ReportService;
 use App\Models\Contact;
 use App\Models\Product;
 use App\Models\Sale;
+use App\Models\SaleItem;
 use App\Models\SellingUnit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -64,6 +65,31 @@ class ReportsTest extends TestCase
         $r = app(ReportService::class)->getProfitReport(now()->subDay()->format('Y-m-d'), now()->addDay()->format('Y-m-d'));
         $this->assertEquals(2000, $r['revenue']);
         $this->assertArrayHasKey('gross_profit', $r);
+    }
+
+    public function test_profit_report_excludes_soft_deleted_sales_from_cogs(): void
+    {
+        $c = Contact::create(['type' => 'person', 'roles' => ['customer'], 'name' => 'C', 'phone' => '0300-222']);
+        $p = Product::create(['name' => 'P', 'sku' => 'P-' . uniqid(), 'base_unit_id' => 'piece', 'stock_quantity' => 100]);
+
+        $makeSale = function (string $invoice) use ($c, $p) {
+            $sale = Sale::create(['invoice_number' => $invoice, 'date' => now()->format('Y-m-d'), 'customer_id' => $c->id,
+                'customer_name' => 'C', 'subtotal' => 1000, 'grand_total' => 1000, 'amount_paid' => 1000,
+                'outstanding_balance' => 0, 'payment_status' => 'paid', 'created_by' => 'Test']);
+            SaleItem::create(['sale_id' => $sale->id, 'product_id' => $p->id, 'packaging_quantity' => 10,
+                'base_unit_quantity' => 10, 'base_quantity' => 10, 'unit_price' => 100, 'cost_price' => 60, 'total' => 1000]);
+            return $sale;
+        };
+
+        $makeSale('INV-P-LIVE-' . uniqid());
+        $makeSale('INV-P-DEL-' . uniqid())->delete();
+
+        $r = app(ReportService::class)->getProfitReport(now()->subDay()->format('Y-m-d'), now()->addDay()->format('Y-m-d'));
+
+        $this->assertEquals(1000, $r['revenue']);
+        $this->assertEquals(600, $r['cogs']);
+        $this->assertEquals(400, $r['gross_profit']);
+        $this->assertEquals(collect($r['bill_wise'])->sum('cogs'), $r['cogs']);
     }
 
     public function test_dashboard_metrics_have_keys(): void

@@ -421,6 +421,7 @@ class InventoryReportService
 
         return DB::table('sale_items')
             ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->whereNull('sales.deleted_at')
             ->whereIn('sale_items.product_id', $productIds)
             ->whereBetween('sales.date', [$from, $to])
             ->select(

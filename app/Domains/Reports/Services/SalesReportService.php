@@ -83,6 +83,7 @@ class SalesReportService
     {
         $products = DB::table('sale_items')
             ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->whereNull('sales.deleted_at')
             ->whereBetween('sales.date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
             ->select(
                 'sale_items.product_id',
@@ -164,6 +165,7 @@ class SalesReportService
 
         $cogs = (float) DB::table('sale_items')
             ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->whereNull('sales.deleted_at')
             ->whereBetween('sales.date', [$from, $to])
             ->whereNotIn('sales.id', $returnedSaleIds)
             ->select(DB::raw('SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)) as cogs'))
