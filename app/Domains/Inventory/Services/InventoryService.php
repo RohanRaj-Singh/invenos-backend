@@ -20,7 +20,7 @@ class InventoryService
             (SELECT MIN(sale_price) FROM selling_units WHERE product_id = products.id), 0
         )) as total_value'))->value('total_value') ?? 0;
 
-        $recentMovements = InventoryTransaction::with('product')
+        $recentMovements = InventoryTransaction::with(['product' => fn ($q) => $q->withArchived()])
             ->orderBy('created_at', 'desc')
             ->take(10)
             ->get()
@@ -42,9 +42,18 @@ class InventoryService
         ?int $categoryId = null,
         string $sortBy = 'name',
         string $sortDir = 'asc',
-        int $perPage = 25
+        int $perPage = 25,
+        string $archived = 'active'
     ): LengthAwarePaginator {
-        $q = Product::with('category', 'sellingUnits');
+        // Archived products are hidden everywhere by Product's global scope; this
+        // filter is the one browsing surface that can opt them back in.
+        $q = match ($archived) {
+            'archived' => Product::withArchived()->whereNotNull('products.archived_at'),
+            'all' => Product::withArchived(),
+            default => Product::query(),
+        };
+
+        $q->with('category', 'sellingUnits');
 
         if ($query) {
             $q->where(function ($q) use ($query) {
@@ -282,7 +291,8 @@ class InventoryService
 
     public function getMovements(?int $productId = null, string $sortDir = 'desc', int $perPage = 25): LengthAwarePaginator
     {
-        $q = InventoryTransaction::with('product');
+        // History still renders for archived products — it records what happened.
+        $q = InventoryTransaction::with(['product' => fn ($q) => $q->withArchived()]);
 
         if ($productId) {
             $q->where('product_id', $productId);
@@ -294,8 +304,12 @@ class InventoryService
 
     public function getLowStock(): array
     {
-        return Product::where('status', 'low-stock')
-            ->orWhere('status', 'out-of-stock')
+        // Grouped on purpose — an ungrouped orWhere would let the archived scope
+        // apply to only the first condition.
+        return Product::where(function ($q) {
+                $q->where('status', 'low-stock')
+                  ->orWhere('status', 'out-of-stock');
+            })
             ->orderBy('stock_quantity')
             ->take(20)
             ->get()

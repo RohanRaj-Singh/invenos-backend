@@ -97,13 +97,19 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
     }
   }, [open, editEntry])
 
+  // Archived products can't be prescribed, and the empty-search list must not leak them.
+  const availableProducts = useMemo(
+    () => (serverProducts || []).filter((p: any) => !p.archived_at),
+    [serverProducts]
+  )
+
   const filtered = useMemo(() => {
-    if (!search.trim()) return serverProducts
+    if (!search.trim()) return availableProducts
     const q = search.toLowerCase()
-    return (serverProducts || []).filter((p: any) =>
+    return availableProducts.filter((p: any) =>
       p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
     )
-  }, [search, serverProducts])
+  }, [search, availableProducts])
 
   const handleSelectProduct = (product: any) => {
     const su = getSmallestUnit(product)

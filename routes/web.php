@@ -31,6 +31,7 @@ Route::prefix('inventory')->group(function () {
     Route::put('/product/{id}', [ProductController::class, 'update'])->name('inventory.update');
     Route::delete('/product/{id}', [ProductController::class, 'destroy'])->name('inventory.destroy');
     Route::post('/product/{id}/archive', [ProductController::class, 'archive'])->name('inventory.archive');
+    Route::post('/product/{id}/unarchive', [ProductController::class, 'unarchive'])->name('inventory.unarchive');
     Route::get('/generate-sku', [ProductController::class, 'generateSku'])->name('inventory.generate-sku');
 });
 

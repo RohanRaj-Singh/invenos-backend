@@ -31,7 +31,8 @@ class RecycleBinController extends Controller
         $items = collect();
 
         if ($type === 'all' || $type === 'products') {
-            $query = Product::onlyTrashed();
+            // Archived rows stay restorable, so include them in the bin listing.
+            $query = Product::onlyTrashed()->withArchived();
             if ($search) {
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
@@ -215,7 +216,7 @@ class RecycleBinController extends Controller
         };
 
         return match ($key) {
-            'product' => $withTrashed ? Product::withTrashed()->find($id) : Product::find($id),
+            'product' => $withTrashed ? Product::withTrashed()->withArchived()->find($id) : Product::withArchived()->find($id),
             'contact' => $withTrashed ? Contact::withTrashed()->find($id) : Contact::find($id),
             'sale' => $withTrashed ? Sale::withTrashed()->find($id) : Sale::find($id),
             'purchase' => $withTrashed ? PurchaseBill::withTrashed()->find($id) : PurchaseBill::find($id),

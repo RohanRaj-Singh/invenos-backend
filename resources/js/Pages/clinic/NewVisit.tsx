@@ -27,8 +27,8 @@ const paymentMethods = [
 export default function NewVisitPage() {
   const { props, url } = usePage()
   const patient = (props as any).patient
-  // Products and selling units come from server
-  const serverProducts = (props as any).products || []
+  // Products and selling units come from server. Archived products can't be prescribed.
+  const serverProducts = ((props as any).products || []).filter((p: any) => !p.archived_at)
 
   const [diagnosis, setDiagnosis] = useState('')
   const [notes, setNotes] = useState('')

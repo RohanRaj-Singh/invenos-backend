@@ -6,6 +6,7 @@ use App\Contracts\Lifecycle\Archivable;
 use App\Contracts\Lifecycle\Deletable;
 use App\Contracts\Lifecycle\PermanentDeletable;
 use App\Contracts\Lifecycle\Restorable;
+use App\Contracts\Lifecycle\Unarchivable;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -51,6 +52,33 @@ class RecordLifecycleService
             record: $record,
             reason: $reason,
         );
+    }
+
+    // ─── Unarchive ─────────────────────────────────────────────
+
+    /**
+     * Reverse archive(). Distinct from restore(), which only clears deleted_at —
+     * an archived product is not soft-deleted, so restore() never touched it.
+     */
+    public function unarchive(Model $record, string $reason, User $user): void
+    {
+        $policy = $this->resolve($record, Unarchivable::class);
+        $policy->canUnarchive($record);
+
+        DB::transaction(function () use ($record, $reason, $user, $policy) {
+            $record->archived_at = null;
+            $record->archive_reason = null;
+            $record->archived_by = null;
+            $record->save();
+            $policy->executeUnarchive($record, $user);
+
+            $this->audit->log(
+                user: $user,
+                event: class_basename($record) . '.unarchived',
+                record: $record,
+                reason: $reason,
+            );
+        });
     }
 
     // ─── Delete (soft) ─────────────────────────────────────────

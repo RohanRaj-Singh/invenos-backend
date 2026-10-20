@@ -118,7 +118,7 @@ class ProductService
     public function update(int $id, array $data): Product
     {
         return DB::transaction(function () use ($id, $data) {
-            $product = Product::findOrFail($id);
+            $product = Product::withArchived()->findOrFail($id);
             $product->update($data);
 
             // If packaging levels were provided, update them and re-derive
@@ -178,24 +178,26 @@ class ProductService
 
     public function restore(int $id): Product
     {
-        $product = Product::withTrashed()->findOrFail($id);
+        $product = Product::withTrashed()->withArchived()->findOrFail($id);
         $product->restore();
         return $product;
     }
 
     public function get(int $id): Product
     {
-        return Product::with('category', 'sellingUnits', 'packaging.containerUnit', 'packaging.containsUnit')
+        return Product::withArchived()
+            ->with('category', 'sellingUnits', 'packaging.containerUnit', 'packaging.containsUnit')
             ->findOrFail($id);
     }
 
     public function generateSku(string $name): string
     {
         $prefix = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $name), 0, 3));
-        $count = Product::withTrashed()->where('sku', 'like', "{$prefix}-%")->count() + 1;
+        // Archived SKUs are still taken — they must not be handed out again.
+        $count = Product::withTrashed()->withArchived()->where('sku', 'like', "{$prefix}-%")->count() + 1;
         $sku = "{$prefix}-" . str_pad((string) $count, 4, '0', STR_PAD_LEFT);
 
-        if (Product::withTrashed()->where('sku', $sku)->exists()) {
+        if (Product::withTrashed()->withArchived()->where('sku', $sku)->exists()) {
             $sku = "{$prefix}-" . str_pad((string) ($count + 1), 4, '0', STR_PAD_LEFT);
         }
 

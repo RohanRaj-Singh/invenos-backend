@@ -11,6 +11,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
 
 class SaleService
@@ -101,7 +102,14 @@ class SaleService
             ]);
 
             foreach ($data->items as $itemData) {
-                $product = Product::lockForUpdate()->findOrFail($itemData->productId);
+                $product = Product::withArchived()->lockForUpdate()->findOrFail($itemData->productId);
+
+                // Archived products are hidden from the POS picker; reject a crafted request too.
+                if ($product->isArchived()) {
+                    throw ValidationException::withMessages([
+                        'items' => "'{$product->name}' is archived and can't be added to a new sale.",
+                    ]);
+                }
 
                 // Server-side selling unit re-validation:
                 // When a selling_unit_id is provided, look up the authoritative

@@ -6,20 +6,34 @@ use App\Contracts\Lifecycle\Archivable;
 use App\Contracts\Lifecycle\Deletable;
 use App\Contracts\Lifecycle\PermanentDeletable;
 use App\Contracts\Lifecycle\Restorable;
+use App\Contracts\Lifecycle\Unarchivable;
 use App\Models\Product;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User;
 
-class ProductPolicy implements Archivable, Deletable, Restorable, PermanentDeletable
+class ProductPolicy implements Archivable, Deletable, Restorable, Unarchivable, PermanentDeletable
 {
     public function canArchive(Model $record): void
     {
-        // Always allowed — archiving is safe
+        // Archiving is always safe, but doing it twice is a mistake.
+        throw_if($record->archived_at !== null, 'Product is already archived.');
     }
 
     public function executeArchive(Model $record, User $user): void
     {
         // No additional operations needed for archive
+    }
+
+    // ─── Unarchive ─────────────────────────────────────────────
+
+    public function canUnarchive(Model $record): void
+    {
+        throw_if($record->archived_at === null, 'Product is not archived.');
+    }
+
+    public function executeUnarchive(Model $record, User $user): void
+    {
+        // Nothing to reverse — archived products keep their stock and history.
     }
 
     public function canDelete(Model $record): void

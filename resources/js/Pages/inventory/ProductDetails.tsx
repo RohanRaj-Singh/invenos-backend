@@ -12,16 +12,19 @@ import {
   RotateCcw,
   Trash2,
   Archive,
+  ArchiveRestore,
+  AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import StockBadge from './components/StockBadge'
+import ArchivedBadge from './components/ArchivedBadge'
 import CompletionBadge, { computeCompletionStatus } from './components/CompletionBadge'
 import InventoryTimeline from './components/InventoryTimeline'
 import AdjustStockDialog from './components/AdjustStockDialog'
-import { formatCurrency } from '@/lib/format'
+import { formatCurrency, formatDate } from '@/lib/format'
 import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
 import { useLifecycleAction } from '@/features/shared/use-lifecycle-action'
@@ -42,6 +45,8 @@ interface BackendProduct {
   last_purchase_cost: number | null
   default_purchase_cost: number | null
   selling_units: any[]
+  archived_at?: string | null
+  archive_reason?: string | null
   created_at: string
 }
 
@@ -55,15 +60,21 @@ export default function ProductDetailsPage() {
   const [showAdjust, setShowAdjust] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showArchiveDialog, setShowArchiveDialog] = useState(false)
+  const [showUnarchiveDialog, setShowUnarchiveDialog] = useState(false)
   const [actionReason, setActionReason] = useState('')
   const { run, processing } = useLifecycleAction()
 
   const lifecycle = ((props as any)?.lifecycle ?? { can_delete: true, delete_blocker: null }) as {
     can_delete: boolean
     delete_blocker: { sales: number; purchases: number } | null
+    can_archive?: boolean
+    can_unarchive?: boolean
   }
   const canDelete = lifecycle.can_delete !== false
   const blocker = lifecycle.delete_blocker
+  const isArchived = !!product?.archived_at
+  const canArchive = lifecycle.can_archive !== false
+  const canUnarchive = lifecycle.can_unarchive === true
 
   const usageParts: string[] = []
   if (blocker?.sales) usageParts.push(`${blocker.sales} sale${blocker.sales === 1 ? '' : 's'}`)
@@ -110,17 +121,18 @@ export default function ProductDetailsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-5">
       {/* Back + Actions */}
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
           <Button variant="ghost" size="sm" onClick={() => router.visit('/inventory')} className="gap-1.5 mb-1 -ml-2">
             <ArrowLeft className="size-3.5" />
             Back to Inventory
           </Button>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Package className="size-5 text-primary" />
             <h1 className="text-xl font-semibold tracking-tight">{product.name}</h1>
             <StockBadge status={product.status as StockStatus} />
             <CompletionBadge product={product as any} size="sm" />
+            {isArchived && <ArchivedBadge />}
           </div>
           <p className="text-sm text-muted-foreground mt-1">
             SKU: <code className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{product.sku}</code>
@@ -129,7 +141,9 @@ export default function ProductDetailsPage() {
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Actions — only the ones that apply to this product's current state. */}
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setShowAdjust(true)} className="gap-1.5">
             <Plus className="size-3.5" />
             Adjust Stock
@@ -138,18 +152,46 @@ export default function ProductDetailsPage() {
             <PackagePlus className="size-3.5" />
             Edit
           </Button>
-          {isAdmin && (
+          {isAdmin && canArchive && (
             <Button variant="outline" size="sm" onClick={() => { setActionReason(''); setShowArchiveDialog(true) }} className="gap-1.5 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-200 dark:border-amber-800">
               <Archive className="size-3.5" /> Archive
             </Button>
           )}
+          {isAdmin && canUnarchive && (
+            <Button size="sm" onClick={() => { setActionReason(''); setShowUnarchiveDialog(true) }} className="gap-1.5">
+              <ArchiveRestore className="size-3.5" /> Unarchive
+            </Button>
+          )}
           {isAdmin && (
-            <Button variant="outline" size="sm" onClick={() => { setActionReason(''); setShowDeleteDialog(true) }} className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-800">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!canDelete}
+              title={canDelete ? undefined : `Used in ${usageText || 'existing transactions'} — archive it instead`}
+              onClick={() => { setActionReason(''); setShowDeleteDialog(true) }}
+              className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 border-red-200 dark:border-red-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            >
               <Trash2 className="size-3.5" /> Delete
             </Button>
           )}
         </div>
       </div>
+
+      {/* Archived banner */}
+      {isArchived && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-3.5">
+          <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <p className="font-medium text-amber-700 dark:text-amber-400">
+              Archived{product.archived_at ? ` on ${formatDate(product.archived_at)}` : ''} — hidden from new transactions.
+            </p>
+            <p className="text-xs text-amber-600 dark:text-amber-300 mt-0.5">
+              {product.archive_reason ? `Reason: ${product.archive_reason}. ` : ''}
+              It is excluded from sales, purchases, reports and stock value. Unarchive to make it available again.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Section tabs */}
       <div className="flex items-center gap-0.5 border-b border-border overflow-x-auto">
@@ -454,7 +496,7 @@ export default function ProductDetailsPage() {
               Archive Product
             </DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground pt-1">
-              Archiving hides the product from new transactions while preserving its history. This is recommended over deletion for products with stock or transaction history.
+              Archiving hides the product from sales, purchases and reports while keeping its history intact. It can be unarchived at any time.
             </DialogDescription>
           </DialogHeader>
           <div className="p-5 space-y-4">
@@ -464,6 +506,12 @@ export default function ProductDetailsPage() {
                 <li>• Product hidden from new transactions</li>
                 <li>• Historical records remain intact</li>
                 <li>• Can be unarchived later</li>
+                {product.stock_quantity > 0 && (
+                  <li>
+                    • {product.stock_quantity} {unitName} worth {formatCurrency(product.stock_quantity * costPrice)} drops
+                    out of stock value and reports while archived
+                  </li>
+                )}
               </ul>
             </div>
             <div>
@@ -489,6 +537,56 @@ export default function ProductDetailsPage() {
                 })
               }} className="flex-1 gap-1.5 border-amber-200 text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:hover:bg-amber-950/20" disabled={processing}>
                 <Archive className="size-3.5" /> {processing ? 'Archiving...' : 'Archive Product'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Unarchive Product Dialog ── */}
+      <Dialog open={showUnarchiveDialog} onOpenChange={setShowUnarchiveDialog}>
+        <DialogContent className="sm:max-w-md gap-0 p-0">
+          <DialogHeader className="p-5 pb-0">
+            <DialogTitle className="text-base text-emerald-600 flex items-center gap-2">
+              <ArchiveRestore className="size-4" />
+              Unarchive Product
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground pt-1">
+              This makes the product available again for sales, purchases and reports.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-5 space-y-4">
+            <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 p-3 text-sm">
+              <p className="font-medium text-emerald-700 dark:text-emerald-400">What unarchiving does:</p>
+              <ul className="mt-1.5 text-xs text-emerald-600 dark:text-emerald-300 space-y-0.5">
+                <li>• Product appears in inventory and all pickers again</li>
+                <li>• Counts toward stock value and low-stock alerts</li>
+                <li>• Stock and history are unchanged</li>
+              </ul>
+            </div>
+            <div>
+              <label htmlFor="unarchive-reason" className="text-xs font-medium text-muted-foreground mb-1.5 block">Reason for unarchiving</label>
+              <textarea
+                id="unarchive-reason"
+                value={actionReason}
+                onChange={(e) => setActionReason(e.target.value)}
+                placeholder="e.g. Selling this product again..."
+                rows={3}
+                className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 resize-none"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowUnarchiveDialog(false)} className="flex-1" disabled={processing}>Cancel</Button>
+              <Button onClick={() => {
+                const reason = actionReason.trim() || 'No reason provided'
+                run({
+                  url: `/inventory/product/${product.id}/unarchive`,
+                  method: 'post',
+                  data: { reason },
+                  onDone: () => setShowUnarchiveDialog(false),
+                })
+              }} className="flex-1 gap-1.5" disabled={processing}>
+                <ArchiveRestore className="size-3.5" /> {processing ? 'Unarchiving...' : 'Unarchive Product'}
               </Button>
             </div>
           </div>

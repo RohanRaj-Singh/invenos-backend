@@ -162,8 +162,9 @@ export default function PurchaseBillPage() {
 
   const { props: inertiaProps } = usePage()
   const rawProducts = (inertiaProps as any).products || []
-  // Normalize backend snake_case → prototype camelCase
-  const mockProducts = rawProducts.map((p: any) => ({
+  // Normalize backend snake_case → prototype camelCase.
+  // Archived products can't be purchased — dropped here so `.find()` lookups miss them too.
+  const mockProducts = useMemo(() => rawProducts.filter((p: any) => !p.archived_at).map((p: any) => ({
     ...p,
     id: p.id,
     name: p.name, sku: p.sku, barcode: p.barcode,
@@ -184,7 +185,7 @@ export default function PurchaseBillPage() {
       quantity: p.selling_units?.[0]?.quantity || 1,
       cost: p.default_purchase_cost || p.last_purchase_cost || 0,
     },
-  }))
+  })), [rawProducts])
   const mockContacts = ((inertiaProps as any).suppliers || []).map((s: any) => ({
     ...s,
     currentBalance: s.current_balance ?? s.opening_balance ?? 0,
@@ -202,7 +203,7 @@ export default function PurchaseBillPage() {
         ((p.category?.name || p.category || '') + '').toLowerCase().includes(q)
       )
       .slice(0, 8)
-  }, [search])
+  }, [search, mockProducts])
 
   // ── Totals ──
   const subtotal = useMemo(() => cart.reduce((s, c) => s + (costOverrides[c.productId] ?? c.unitCost) * c.purchaseQuantity, 0), [cart, costOverrides])

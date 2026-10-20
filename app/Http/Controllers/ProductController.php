@@ -127,7 +127,7 @@ class ProductController extends Controller
     {
         $product = $this->productService->get($id);
 
-        $movements = \App\Models\InventoryTransaction::with('product')
+        $movements = \App\Models\InventoryTransaction::with(['product' => fn ($q) => $q->withArchived()])
             ->where('product_id', $id)
             ->orderBy('created_at', 'desc')
             ->take(20)
@@ -158,7 +158,8 @@ class ProductController extends Controller
             'lifecycle' => [
                 'can_delete' => $blocker === null,
                 'delete_blocker' => $blocker,
-                'can_archive' => true,
+                'can_archive' => ! $product->isArchived(),
+                'can_unarchive' => $product->isArchived(),
             ],
         ]);
     }
@@ -186,7 +187,7 @@ class ProductController extends Controller
     {
         $this->authorize('lifecycle.delete-products');
 
-        $product = \App\Models\Product::findOrFail($id);
+        $product = \App\Models\Product::withArchived()->findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
@@ -202,13 +203,29 @@ class ProductController extends Controller
     {
         $this->authorize('lifecycle.archive-products');
 
-        $product = \App\Models\Product::findOrFail($id);
+        $product = \App\Models\Product::withArchived()->findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
             $this->lifecycle->archive($product, $reason, auth()->user());
             return redirect()->route('inventory.show', $product->id)
                 ->with('success', "Product '{$product->name}' archived.");
+        } catch (\Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+    }
+
+    public function unarchive(int $id): RedirectResponse
+    {
+        $this->authorize('lifecycle.archive-products');
+
+        $product = \App\Models\Product::withArchived()->findOrFail($id);
+        $reason = request('reason', 'No reason provided');
+
+        try {
+            $this->lifecycle->unarchive($product, $reason, auth()->user());
+            return redirect()->route('inventory.show', $product->id)
+                ->with('success', "Product '{$product->name}' is active again.");
         } catch (\Throwable $e) {
             return back()->with('error', $e->getMessage());
         }

@@ -12,6 +12,7 @@ use App\Models\PurchaseBillItem;
 use App\Models\FinancialTransaction;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PurchaseService
 {
@@ -63,7 +64,15 @@ class PurchaseService
             }
 
             foreach ($data->items as $itemData) {
-                $product = Product::lockForUpdate()->findOrFail($itemData->productId);
+                $product = Product::withArchived()->lockForUpdate()->findOrFail($itemData->productId);
+
+                // Archived products are hidden from the purchase picker; reject a crafted request too.
+                if ($product->isArchived()) {
+                    throw ValidationException::withMessages([
+                        'items' => "'{$product->name}' is archived and can't be added to a new purchase.",
+                    ]);
+                }
+
                 $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
                 if ($baseQuantity <= 0) {
                     throw new \InvalidArgumentException("Invalid quantity for product '{$product->name}'.");
@@ -94,7 +103,8 @@ class PurchaseService
             ]);
 
             foreach ($data->items as $itemData) {
-                $product = Product::lockForUpdate()->findOrFail($itemData->productId);
+                // Already rejected above if archived — just load it here.
+                $product = Product::withArchived()->lockForUpdate()->findOrFail($itemData->productId);
                 $baseQuantity = $itemData->purchasePackQty * $itemData->purchaseQuantity;
 
                 // Resolve pack display name through ProductUnitService so raw unit_ids

@@ -132,7 +132,7 @@ class ReturnService
         // Build inventory section
         $inventoryItems = [];
         foreach ($data->items as $item) {
-            $product = \App\Models\Product::find($item->productId);
+            $product = \App\Models\Product::withArchived()->find($item->productId);
             $qty = $isSaleReturn ? $item->baseQuantity : -$item->baseQuantity;
             $inventoryItems[] = [
                 'product' => $product?->name ?? $item->productName,
@@ -426,9 +426,9 @@ class ReturnService
     private function findOriginalItem(string $referenceType, int $itemId): ?array
     {
         if ($referenceType === 'sale' || $referenceType === 'sale_bill') {
-            $item = SaleItem::with('product')->find($itemId);
+            $item = SaleItem::with(['product' => fn ($q) => $q->withArchived()])->find($itemId);
         } else {
-            $item = PurchaseBillItem::with('product')->find($itemId);
+            $item = PurchaseBillItem::with(['product' => fn ($q) => $q->withArchived()])->find($itemId);
         }
 
         if (!$item) {

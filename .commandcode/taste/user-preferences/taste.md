@@ -21,3 +21,6 @@
 - Validate calculations against real data (e.g. import SQL dumps, run queries) before trusting reported numbers. Confidence: 0.8
 - For frontend/UI work, explicitly wants the specialized react and UI/UX skills applied (e.g. ui-ux-pro-max, frontend-design) alongside graphify navigation. Confidence: 0.7
 - Designs and evaluates UI feedback for non-technical end users, not developers — avoids ambiguous or contradictory messages (e.g. a "deleted" toast when nothing was deleted); blocked/error states should explain why in plain language and offer a clear next step rather than a dead end. Confidence: 0.75
+- Expects hidden/archived/deleted entities to be excluded consistently from every listing, picker, and report surface so their state is never ambiguous — e.g. an archived product must not still appear available in inventory, sales, or purchase screens. Confidence: 0.7
+- Prefers one consistent, simple rule over nuanced per-context exceptions (e.g. chose to exclude archived products from all money numbers, valuation, and reports rather than keep them in valuation while dropping them only from alerts). Confidence: 0.6
+- Delegates judgment calls to the agent — prefers it to decide and proceed autonomously on fixes it deems important (e.g. "Proceed with the fix if important") rather than stopping to ask for sign-off on every issue. Confidence: 0.65

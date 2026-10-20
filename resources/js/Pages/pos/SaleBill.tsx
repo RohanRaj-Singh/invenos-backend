@@ -163,8 +163,10 @@ interface CustomUnitOption {
 export default function SaleBillPage() {
   const { props: inertiaProps } = usePage()
   const rawProducts = (inertiaProps as any).products || []
-  // Normalize backend snake_case → camelCase for prototype compatibility
-  const posProducts = rawProducts.map((p: any) => ({
+  // Normalize backend snake_case → camelCase for prototype compatibility.
+  // Archived products can't be sold, so drop them here — this also keeps them out
+  // of the barcode/`.find()` fast paths that bypass the fuzzy search filter.
+  const posProducts = rawProducts.filter((p: any) => !p.archived_at).map((p: any) => ({
     ...p,
     id: p.id,
     sellingUnits: (p.selling_units || []).map((u: any) => ({

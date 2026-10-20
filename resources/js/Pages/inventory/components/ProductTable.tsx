@@ -2,6 +2,7 @@ import type { StockStatus } from '@/types'
 import { router } from '@inertiajs/react'
 import { ArrowRight, Package } from 'lucide-react'
 import StockBadge from './StockBadge'
+import ArchivedBadge from './ArchivedBadge'
 import { formatCurrency } from '@/lib/format'
 import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ interface BackendProduct {
   last_purchase_cost: number | null
   default_purchase_cost: number | null
   status: string
+  archived_at?: string | null
   selling_units: SellingUnit[]
 }
 
@@ -146,7 +148,10 @@ export default function ProductTable({ products }: ProductTableProps) {
                     className="px-4 py-3.5 cursor-pointer"
                     onClick={() => router.visit(`/inventory/product/${product.id}`)}
                   >
-                    <StockBadge status={product.status as StockStatus} />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <StockBadge status={product.status as StockStatus} />
+                      {product.archived_at && <ArchivedBadge />}
+                    </div>
                   </td>
                   <td
                     className="px-4 py-3.5 cursor-pointer"

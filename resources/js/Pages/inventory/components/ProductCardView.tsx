@@ -3,6 +3,7 @@ import { router } from '@inertiajs/react'
 import { Package, ArrowRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import StockBadge from './StockBadge'
+import ArchivedBadge from './ArchivedBadge'
 import CompletionBadge from './CompletionBadge'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,7 @@ interface BackendProduct {
   last_purchase_cost?: number | null
   default_purchase_cost?: number | null
   base_unit_id?: string
+  archived_at?: string | null
 }
 
 interface ProductCardViewProps {
@@ -98,7 +100,10 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <span>Cost: {formatCurrency(product.last_purchase_cost ?? product.default_purchase_cost ?? 0)}</span>
                   </div>
-                  <StockBadge status={product.status as StockStatus} size="xs" />
+                  <div className="flex items-center gap-1.5">
+                    {product.archived_at && <ArchivedBadge size="xs" />}
+                    <StockBadge status={product.status as StockStatus} size="xs" />
+                  </div>
                 </div>
               </div>
             </CardContent>

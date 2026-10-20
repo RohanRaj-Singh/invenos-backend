@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Domains\Inventory\Services\InventoryService;
 use App\Domains\Products\Services\ProductService;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -23,6 +24,11 @@ class InventoryController extends Controller
         $status = request('status', '');
         $categoryId = request('category_id') ? (int) request('category_id') : null;
 
+        $archived = request('archived', 'active');
+        if (!in_array($archived, ['active', 'archived', 'all'], true)) {
+            $archived = 'active';
+        }
+
         $perPage = (int) request('per_page', 25);
         if (!in_array($perPage, self::PAGE_SIZES, true)) {
             $perPage = 25;
@@ -33,6 +39,7 @@ class InventoryController extends Controller
             status: $status,
             categoryId: $categoryId,
             perPage: $perPage,
+            archived: $archived,
         );
 
         return Inertia::render('inventory/ProductList', [
@@ -48,6 +55,7 @@ class InventoryController extends Controller
                 'search' => $search,
                 'status' => $status,
                 'category_id' => $categoryId,
+                'archived' => $archived,
                 'per_page' => $perPage,
             ],
         ]);
@@ -94,10 +102,17 @@ class InventoryController extends Controller
     public function adjust(): \Illuminate\Http\RedirectResponse
     {
         $data = request()->validate([
-            'product_id' => 'required|integer|exists:products,id',
+            // Archived products are hidden from every picker, so reject them here too
+            // rather than trusting the client not to post one.
+            'product_id' => [
+                'required', 'integer',
+                Rule::exists('products', 'id')->whereNull('archived_at'),
+            ],
             'type' => 'required|string|in:adjustment,damage,consumption',
             'quantity' => 'required|numeric',
             'notes' => 'nullable|string|max:500',
+        ], [
+            'product_id.exists' => 'That product is archived, so its stock cannot be adjusted.',
         ]);
 
         $this->inventoryService->recordTransaction(

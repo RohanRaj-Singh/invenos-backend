@@ -47,7 +47,8 @@ class PurchaseReturnService
             ]);
 
             foreach ($data->items as $itemData) {
-                $product = Product::findOrFail($itemData->productId);
+                // Returns must still work for archived products — you can send one back.
+                $product = Product::withArchived()->findOrFail($itemData->productId);
 
                 $bill->items()->create([
                     'product_id' => $product->id,

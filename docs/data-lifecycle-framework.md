@@ -426,6 +426,32 @@ public function destroy(int $id)
 | **Stock Adjustment** | ❌ Not applicable | ✅ Always | — |
 | **Expense** | ❌ Not applicable | ✅ Always | — |
 
+### Archived products — where they appear
+
+`products.archived_at` is enforced by a **default-exclude global scope** on the `Product`
+model (`notArchived`). An archived product is hidden from every listing, picker, report,
+total and alert, so it can never look available:
+
+| Surface | Archived products |
+|---------|-------------------|
+| Inventory list | Excluded. Reachable via the `Active \| Archived \| Active + Archived` filter. |
+| POS picker, purchase picker, clinic medicine picker | Excluded — and rejected server-side if posted directly. |
+| Product ledger, stock report, valuation, stock value | Excluded. |
+| Low-stock alerts, dashboard widget | Excluded. |
+| Stock movements, day book | **Included** — history records what happened. |
+| Product detail page | **Included** — needed to unarchive. |
+| Returns of an archived product | **Included** — you can still refund or return one. |
+| Recycle Bin | **Included** — a row that is both archived and trashed stays restorable. |
+
+Archiving is **reversible**: `RecordLifecycleService::unarchive()` (contract
+`Unarchivable`, route `POST /inventory/product/{id}/unarchive`) clears
+`archived_at` / `archive_reason` / `archived_by` and audits `Product.unarchived`.
+Note this is distinct from `restore()`, which only clears `deleted_at` — an archived
+product is not soft-deleted, so `restore()` never touched it.
+
+Archiving a product that still holds stock removes that stock from stock value and
+reports. The Archive dialog states the amount before confirming.
+
 ---
 
 ## 7. Recycle Bin

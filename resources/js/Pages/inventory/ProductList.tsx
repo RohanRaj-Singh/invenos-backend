@@ -31,6 +31,8 @@ interface BackendProduct {
   default_purchase_cost?: number
   category: Category | null
   selling_units: any[]
+  archived_at?: string | null
+  archive_reason?: string | null
   created_at: string
 }
 
@@ -49,6 +51,7 @@ interface PageProps {
     search: string
     status: string
     category_id: number | null
+    archived?: 'active' | 'archived' | 'all'
     per_page: number
   }
 }
@@ -87,6 +90,7 @@ export default function ProductListPage() {
   const [search, setSearch] = useState(filters?.search || '')
   const [category, setCategory] = useState<string>(filters?.category_id ? String(filters.category_id) : 'all')
   const [stockStatus, setStockStatus] = useState<string>(filters?.status || 'all')
+  const [archived, setArchived] = useState<'active' | 'archived' | 'all'>(filters?.archived || 'active')
   const [completionStatus, setCompletionStatus] = useState<'all' | 'complete' | 'incomplete'>('all')
   const [perPage, setPerPage] = useState<number>(filters?.per_page || 25)
 
@@ -98,6 +102,7 @@ export default function ProductListPage() {
       search,
       status: stockStatus,
       category_id: category === 'all' ? '' : category,
+      archived,
       per_page: perPage,
       page,
     }, {
@@ -106,7 +111,7 @@ export default function ProductListPage() {
       replace: true,
       only: ['products', 'meta', 'filters'],
     })
-  }, [search, stockStatus, category, perPage])
+  }, [search, stockStatus, category, archived, perPage])
 
   // Debounced fetch on filter/search/per-page change; always start at page 1.
   useEffect(() => {
@@ -116,7 +121,7 @@ export default function ProductListPage() {
     }
     const t = setTimeout(() => fetchPage(1), 300)
     return () => clearTimeout(t)
-  }, [search, stockStatus, category, perPage, fetchPage])
+  }, [search, stockStatus, category, archived, perPage, fetchPage])
 
   // Completion status is derived from the loaded page, so it stays client-side.
   const filtered = useMemo(() => {
@@ -137,6 +142,7 @@ export default function ProductListPage() {
     }, 0)
   }, [products])
 
+  const count = meta?.total ?? products.length
   const from = meta.total === 0 ? 0 : (meta.current_page - 1) * meta.per_page + 1
   const to = Math.min(meta.current_page * meta.per_page, meta.total)
 
@@ -153,8 +159,15 @@ export default function ProductListPage() {
           </div>
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Products</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {meta?.total ?? products.length} products · Stock value: {formatCurrency(totalStockValue)}
+            {archived === 'archived'
+              ? `${count} archived product${count === 1 ? '' : 's'} · Stock value: ${formatCurrency(totalStockValue)}`
+              : `${count} products · Active stock value: ${formatCurrency(totalStockValue)}`}
           </p>
+          {archived === 'archived' && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Archived products are hidden from sales, purchases, reports and stock value.
+            </p>
+          )}
         </div>
         <Button
           onClick={() => router.visit('/inventory/add')}
@@ -174,6 +187,8 @@ export default function ProductListPage() {
         onCategoryChange={setCategory}
         stockStatus={stockStatus}
         onStockStatusChange={setStockStatus}
+        archived={archived}
+        onArchivedChange={setArchived}
         completionStatus={completionStatus}
         onCompletionStatusChange={setCompletionStatus}
         categories={categories}
@@ -183,7 +198,7 @@ export default function ProductListPage() {
       <div className="text-xs text-muted-foreground">
         Showing <span className="font-medium text-foreground">
           {meta?.total === 0 ? '0' : `${from}–${to}`}
-        </span> of {meta?.total ?? products.length} products
+        </span> of {count} products
       </div>
 
       {/* Desktop table */}

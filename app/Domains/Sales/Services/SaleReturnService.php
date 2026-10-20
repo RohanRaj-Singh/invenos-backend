@@ -48,7 +48,8 @@ class SaleReturnService
             ]);
 
             foreach ($data->items as $itemData) {
-                $product = Product::findOrFail($itemData->productId);
+                // Returns must still work for archived products — you can refund one.
+                $product = Product::withArchived()->findOrFail($itemData->productId);
 
                 // Only create sale item for record-keeping
                 $sale->items()->create([
