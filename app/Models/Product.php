@@ -19,7 +19,8 @@ class Product extends Model
     protected $fillable = [
         'name', 'sku', 'barcode', 'category_id', 'description', 'product_type',
         'base_unit_id', 'track_inventory', 'stock_quantity', 'low_stock_threshold',
-        'last_purchase_cost', 'default_purchase_cost', 'allow_negative_stock',
+        'last_purchase_cost', 'default_purchase_cost', 'opening_cost', 'average_cost', 'uncosted_qty',
+        'allow_negative_stock',
         'status', 'supplier_name', 'location', 'created_by',
     ];
 
@@ -29,6 +30,9 @@ class Product extends Model
         'track_inventory' => 'boolean',
         'default_purchase_cost' => 'float',
         'last_purchase_cost' => 'float',
+        'opening_cost' => 'float',
+        'average_cost' => 'float',
+        'uncosted_qty' => 'float',
         'allow_negative_stock' => 'boolean',
         'archived_at' => 'datetime',
     ];

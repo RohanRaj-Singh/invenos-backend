@@ -3,31 +3,30 @@
 namespace App\Domains\Returns\Services;
 
 use App\Domains\Returns\DTOs\ReturnCreateData;
-use App\Domains\Transactions\Services\TransactionEngine;
-use App\Models\ReturnModel;
-use App\Models\ReturnItem;
-use App\Models\Sale;
-use App\Models\SaleItem;
+use App\Models\Contact;
+use App\Models\FinancialTransaction;
+use App\Models\InventoryTransaction;
 use App\Models\PurchaseBill;
 use App\Models\PurchaseBillItem;
+use App\Models\ReturnModel;
+use App\Models\Sale;
+use App\Models\SaleItem;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Service for managing return documents.
+ * Canonical return service.
  *
- * Returns follow a lifecycle:
- *   Pending → (create document, no effects)
- *   Completed → (process via TransactionEngine — inventory, balance, financial)
- *   Cancelled → (void, no effects)
+ * Lifecycle: pending → completed → (reversed) | pending → cancelled.
  *
- * Sale Return inventory effect: +quantity (stock goes UP)
- * Purchase Return inventory effect: -quantity (stock goes DOWN)
+ * Effects are applied once, inside one transaction, and are reversed by
+ * compensating records — never by deleting history.
  */
 class ReturnService
 {
     public function __construct(
-        private readonly TransactionEngine $transactionEngine,
+        private readonly \App\Domains\Inventory\Services\InventoryService $inventory,
+        private readonly \App\Domains\Ledger\CashLedgerService $ledger,
     ) {}
 
     // ─── Return Number Generation ───────────────────────────────
@@ -51,9 +50,6 @@ class ReturnService
     // ─── Validation ────────────────────────────────────────────
 
     /**
-     * Validate that return quantities don't exceed the original document's quantities
-     * (accounting for previously completed returns).
-     *
      * @throws \InvalidArgumentException
      */
     public function validate(ReturnCreateData $data): void
@@ -62,29 +58,25 @@ class ReturnService
             throw new \InvalidArgumentException('Return must have at least one item.');
         }
 
+        if ($data->refundAmount < 0 || $data->refundAmount > $data->grandTotal) {
+            throw new \InvalidArgumentException('Refund amount must be between 0 and the return value.');
+        }
+
         foreach ($data->items as $item) {
-            // Look up the original line item
             $originalItem = $this->findOriginalItem($data->referenceType, $item->referenceItemId);
-            if (!$originalItem) {
+            if (! $originalItem) {
                 throw new \InvalidArgumentException("Original line item #{$item->referenceItemId} not found.");
             }
 
-            $originalQty = (float) ($originalItem['quantity'] ?? $originalItem['packaging_quantity'] ?? 0);
-            $originalBaseQty = (float) ($originalItem['base_quantity'] ?? 0);
-
-            // Get previously returned quantity for this line item
+            $originalQty = (float) ($originalItem['quantity'] ?? 0);
             $previouslyReturned = ReturnModel::returnedQuantityForItem(
                 $item->referenceItemType,
                 $item->referenceItemId,
             );
-
             $remainingQty = $originalQty - $previouslyReturned;
-            $remainingBaseQty = $originalBaseQty - $previouslyReturned;
 
             if ($item->quantity <= 0) {
-                throw new \InvalidArgumentException(
-                    "Invalid return quantity for '{$item->productName}'."
-                );
+                throw new \InvalidArgumentException("Invalid return quantity for '{$item->productName}'.");
             }
 
             if ($item->quantity > $remainingQty) {
@@ -95,41 +87,22 @@ class ReturnService
             }
 
             if ($item->baseQuantity <= 0) {
-                throw new \InvalidArgumentException(
-                    "Invalid base quantity for '{$item->productName}'."
-                );
+                throw new \InvalidArgumentException("Invalid base quantity for '{$item->productName}'.");
             }
 
             if ($item->unitPrice < 0) {
-                throw new \InvalidArgumentException(
-                    "Unit price cannot be negative for '{$item->productName}'."
-                );
+                throw new \InvalidArgumentException("Unit price cannot be negative for '{$item->productName}'.");
             }
         }
     }
 
     // ─── Preview ───────────────────────────────────────────────
 
-    /**
-     * Preview the full impact of a return before confirming.
-     *
-     * Returns a structured preview with:
-     * - Inventory: what stock changes
-     * - Financial: refund/credit details
-     * - Contact Balance: before/after/change
-     * - Reports Impact: how net values are affected
-     */
     public function preview(ReturnCreateData $data): array
     {
         $isSaleReturn = $data->type === 'SALE';
+        $contact = $data->contactId ? Contact::find($data->contactId) : null;
 
-        // Get contact info
-        $contact = null;
-        if ($data->contactId) {
-            $contact = \App\Models\Contact::find($data->contactId);
-        }
-
-        // Build inventory section
         $inventoryItems = [];
         foreach ($data->items as $item) {
             $product = \App\Models\Product::withArchived()->find($item->productId);
@@ -138,64 +111,32 @@ class ReturnService
                 'product' => $product?->name ?? $item->productName,
                 'quantity' => $qty,
                 'unit' => $item->packagingName ?? 'units',
-                'display_qty' => $isSaleReturn
-                    ? "+{$item->quantity} {$item->packagingName}"
-                    : "-{$item->quantity} {$item->packagingName}",
+                'restock' => $item->restock,
             ];
-        }
-
-        // Build financial section
-        $financialSection = [
-            'subtotal' => $data->subtotal,
-            'discount' => $data->discount,
-            'refund_amount' => $data->refundAmount,
-            'method' => $data->refundMethod,
-            'is_refund' => $data->refundAmount > 0,
-        ];
-
-        // Build contact balance section
-        $balanceSection = null;
-        if ($contact) {
-            $currentBalance = (float) $contact->current_balance;
-            $balanceSection = [
-                'contact_name' => $contact->name,
-                'current_balance' => $currentBalance,
-                'change' => -$data->grandTotal,
-                'new_balance' => max(0, $currentBalance - $data->grandTotal),
-                'direction' => $isSaleReturn ? 'decrease' : 'decrease',
-            ];
-        }
-
-        // Build reports impact section
-        $reportsImpact = [];
-        if ($isSaleReturn) {
-            $reportsImpact[] = "Net Sales: -" . number_format($data->grandTotal);
-            foreach ($data->items as $item) {
-                $reportsImpact[] = "Sale quantity ({$item->productName}): -{$item->baseQuantity} base units";
-            }
-        } else {
-            $reportsImpact[] = "Net Purchases: -" . number_format($data->grandTotal);
-            foreach ($data->items as $item) {
-                $reportsImpact[] = "Purchase quantity ({$item->productName}): -{$item->baseQuantity} base units";
-            }
         }
 
         return [
             'type' => $isSaleReturn ? 'Sale Return' : 'Purchase Return',
             'document_number' => $data->returnNumber,
             'inventory' => $inventoryItems,
-            'financial' => $financialSection,
-            'balance' => $balanceSection,
-            'reports_impact' => $reportsImpact,
+            'financial' => [
+                'subtotal' => $data->subtotal,
+                'discount' => $data->discount,
+                'grand_total' => $data->grandTotal,
+                'refund_amount' => $data->refundAmount,
+                'credit_amount' => round($data->grandTotal - $data->refundAmount, 2),
+                'method' => $data->refundMethod,
+            ],
+            'balance' => $contact ? [
+                'contact_name' => $contact->name,
+                'current_balance' => (float) $contact->current_balance,
+                'change' => -$data->grandTotal,
+            ] : null,
         ];
     }
 
     // ─── Create Return (Pending) ───────────────────────────────
 
-    /**
-     * Create a return document in 'pending' status.
-     * No inventory/financial/balance effects are applied yet.
-     */
     public function createReturn(ReturnCreateData $data): ReturnModel
     {
         $this->validate($data);
@@ -232,6 +173,7 @@ class ReturnService
                     'base_quantity' => $item->baseQuantity,
                     'unit_price' => $item->unitPrice,
                     'total' => $item->total,
+                    'restock' => $item->restock,
                     'reason_id' => $item->reasonId,
                     'notes' => $item->notes,
                 ]);
@@ -241,102 +183,142 @@ class ReturnService
         });
     }
 
-    // ─── Complete Return (Apply Effects) ───────────────────────
+    // ─── Complete Return (Apply Effects Once) ──────────────────
 
-    /**
-     * Complete a pending return — applies all effects via TransactionEngine:
-     * - Inventory movements (add back to stock for sale returns)
-     * - Financial transaction (refund/credit)
-     * - Contact balance update
-     * - Updates original document's return_total/return_status
-     */
     public function completeReturn(int $id): ReturnModel
     {
-        $return = ReturnModel::with('items')->findOrFail($id);
+        return DB::transaction(function () use ($id) {
+            $return = ReturnModel::with('items')->lockForUpdate()->findOrFail($id);
 
-        if ($return->status !== 'pending') {
-            throw new \InvalidArgumentException(
-                "Cannot complete return #{$return->id}: status is '{$return->status}', expected 'pending'."
-            );
-        }
-
-        if ($return->items->isEmpty()) {
-            throw new \InvalidArgumentException("Cannot complete return #{$return->id}: no items.");
-        }
-
-        DB::transaction(function () use ($return) {
-            $isSaleReturn = $return->type === 'SALE';
-
-            // Lock the original document
-            $originalDoc = $isSaleReturn
-                ? Sale::lockForUpdate()->findOrFail($return->reference_id)
-                : PurchaseBill::lockForUpdate()->findOrFail($return->reference_id);
-
-            // Build TransactionData for the engine
-            $itemData = $return->items->map(fn ($item) => [
-                'product_id' => $item->product_id,
-                'product_name' => $item->product_name,
-                'selling_unit_id' => $item->selling_unit_id,
-                'packaging_name' => $item->packaging_name,
-                'quantity' => $item->quantity,
-                'base_quantity' => $item->base_quantity,
-                'unit_price' => (float) $item->unit_price,
-                'total' => (float) $item->total,
-                'reference_item_id' => $item->reference_item_id,
-                'reference_item_type' => $item->reference_item_type,
-            ])->toArray();
-
-            $transactionData = new \App\Domains\Transactions\DTOs\TransactionData(
-                documentNumber: $return->return_number,
-                typeKey: 'return',
-                contactId: $return->contact_id,
-                date: $return->return_date?->format('Y-m-d') ?? now()->format('Y-m-d'),
-                items: $itemData,
-                grandTotal: (float) $return->grand_total,
-                paymentMethod: $return->refund_method ?? 'credit',
-                paymentStatus: 'paid',
-                source: 'return',
-                notes: "Return {$return->return_number}" . ($return->reason_note ? " — {$return->reason_note}" : ''),
-                createdBy: $return->created_by,
-                referenceId: $return->reference_id,
-                referenceType: $isSaleReturn ? 'sale' : 'purchase',
-            );
-
-            // Process via TransactionEngine (inventory + financial + balance)
-            $this->transactionEngine->process($transactionData);
-
-            // Update original document's return tracking
-            $currentReturnTotal = (float) $originalDoc->return_total;
-            $newReturnTotal = $currentReturnTotal + (float) $return->grand_total;
-
-            $totalOriginal = $isSaleReturn
-                ? (float) $originalDoc->grand_total
-                : (float) $originalDoc->total_amount;
-
-            $returnStatus = 'none';
-            if ($newReturnTotal >= $totalOriginal) {
-                $returnStatus = 'full';
-            } elseif ($newReturnTotal > 0) {
-                $returnStatus = 'partial';
+            if ($return->status !== 'pending') {
+                throw new \InvalidArgumentException(
+                    "Cannot complete return #{$id}: status is '{$return->status}', expected 'pending'."
+                );
             }
 
-            $originalDoc->return_total = $newReturnTotal;
-            $originalDoc->return_status = $returnStatus;
-            $originalDoc->save();
+            if ($return->effects_applied_at !== null) {
+                throw new \InvalidArgumentException("Return #{$id} has already been applied.");
+            }
 
-            // Update the return status
+            if ($return->items->isEmpty()) {
+                throw new \InvalidArgumentException("Cannot complete return #{$id}: no items.");
+            }
+
+            $isSaleReturn = $return->type === 'SALE';
+            $contact = $return->contact_id ? Contact::lockForUpdate()->find($return->contact_id) : null;
+            $date = $return->return_date?->format('Y-m-d') ?? now()->toDateString();
+
+            // 1. Stock
+            foreach ($return->items as $item) {
+                $this->applyStock($return, $item, $isSaleReturn);
+            }
+
+            // 2. Party: the credit note reduces the balance by the return value.
+            if ($contact) {
+                \App\Domains\Ledger\PartyBalance::apply($contact, -(float) $return->grand_total);
+            }
+
+            // 3. Cash: only the actual refund moves money.
+            $refund = (float) $return->refund_amount;
+            if ($refund > 0) {
+                $this->ledger->record([
+                    'contact_id' => $contact?->id,
+                    'direction' => $isSaleReturn ? 'out' : 'in',
+                    'type' => 'refund',
+                    'date' => $date,
+                    'amount' => $refund,
+                    'method' => $return->refund_method ?: 'cash',
+                    'reference' => $return->return_number,
+                    'description' => ($isSaleReturn ? 'Refund for ' : 'Refund from supplier for ') . $return->return_number,
+                    'linked_sale_id' => $isSaleReturn ? $return->reference_id : null,
+                    'linked_purchase_id' => $isSaleReturn ? null : $return->reference_id,
+                    'linked_return_id' => $return->id,
+                    'source_type' => 'return',
+                    'source_id' => $return->id,
+                    'event_key' => 'refund:' . $return->id . ':' . $return->return_number,
+                    'created_by' => $return->created_by,
+                ]);
+
+                if ($contact) {
+                    \App\Domains\Ledger\PartyBalance::applyCash($contact, 'refund', $refund);
+                }
+            }
+
+            // 4. Original document tracking
+            $this->applyReturnToOriginal($return, 1);
+
             $return->status = 'completed';
+            $return->effects_applied_at = now();
             $return->save();
-        });
 
-        return $return->fresh()->load('items', 'contact', 'reason', 'reference');
+            return $return->fresh()->load('items', 'contact', 'reason', 'reference');
+        });
+    }
+
+    // ─── Reverse a Completed Return ────────────────────────────
+
+    public function reverseReturn(int $id, ?string $user = null): ReturnModel
+    {
+        return DB::transaction(function () use ($id, $user) {
+            $return = ReturnModel::with('items')->lockForUpdate()->findOrFail($id);
+
+            if ($return->status !== 'completed') {
+                throw new \InvalidArgumentException(
+                    "Cannot reverse return #{$id}: status is '{$return->status}', expected 'completed'."
+                );
+            }
+
+            $isSaleReturn = $return->type === 'SALE';
+            $contact = $return->contact_id ? Contact::lockForUpdate()->find($return->contact_id) : null;
+
+            // 1. Reverse every stock movement this return produced.
+            $movements = InventoryTransaction::where('reference', $return->return_number)
+                ->whereIn('type', ['sale-return', 'purchase-return', 'damage'])
+                ->get();
+
+            foreach ($movements as $movement) {
+                $this->inventory->recordAdjustment(
+                    productId: (int) $movement->product_id,
+                    quantity: -(float) $movement->quantity,
+                    type: $movement->type,
+                    reference: 'REV-' . $return->return_number,
+                    notes: 'Reversal of return ' . $return->return_number,
+                    referenceType: 'return',
+                    referenceId: $return->id,
+                    user: $user ?? 'System',
+                );
+            }
+
+            // 2. Reverse refunds.
+            $refunds = FinancialTransaction::where('linked_return_id', $return->id)
+                ->where('type', 'refund')
+                ->whereNull('reversed_at')
+                ->get();
+
+            foreach ($refunds as $refund) {
+                if ($contact) {
+                    \App\Domains\Ledger\PartyBalance::reverseCash($contact, 'refund', (float) $refund->amount);
+                }
+                $this->ledger->reverse($refund, 'Return reversed', $user);
+            }
+
+            // 3. Undo the credit note.
+            if ($contact) {
+                \App\Domains\Ledger\PartyBalance::apply($contact, (float) $return->grand_total);
+            }
+
+            // 4. Restore the original document's return tracking.
+            $this->applyReturnToOriginal($return, -1);
+
+            $return->status = 'reversed';
+            $return->save();
+
+            return $return->fresh()->load('items', 'contact', 'reason', 'reference');
+        });
     }
 
     // ─── Cancel Return ──────────────────────────────────────────
 
-    /**
-     * Cancel a pending return — no effects applied, just voided.
-     */
     public function cancelReturn(int $id): ReturnModel
     {
         $return = ReturnModel::findOrFail($id);
@@ -355,9 +337,6 @@ class ReturnService
 
     // ─── Query ──────────────────────────────────────────────────
 
-    /**
-     * Get a single return with all relations.
-     */
     public function get(int $id): ReturnModel
     {
         return ReturnModel::withTrashed()
@@ -365,9 +344,6 @@ class ReturnService
             ->findOrFail($id);
     }
 
-    /**
-     * Search returns with filters.
-     */
     public function search(
         string $query = '',
         ?string $type = null,
@@ -376,21 +352,20 @@ class ReturnService
         string $dateTo = '',
         int $perPage = 25,
     ): LengthAwarePaginator {
-        $q = ReturnModel::withTrashed()
-            ->with(['contact', 'reason']);
+        $q = ReturnModel::withTrashed()->with(['contact', 'reason']);
 
-        if ($type && in_array($type, ['SALE', 'PURCHASE'])) {
+        if ($type && in_array($type, ['SALE', 'PURCHASE'], true)) {
             $q->where('type', $type);
         }
 
-        if ($status && in_array($status, ['pending', 'completed', 'cancelled'])) {
+        if ($status && in_array($status, ['pending', 'completed', 'cancelled', 'reversed'], true)) {
             $q->where('status', $status);
         }
 
         if ($query) {
             $q->where(function ($q) use ($query) {
                 $q->where('return_number', 'like', "%{$query}%")
-                  ->orWhereHas('contact', fn($cq) => $cq->where('name', 'like', "%{$query}%"));
+                  ->orWhereHas('contact', fn ($cq) => $cq->where('name', 'like', "%{$query}%"));
             });
         }
 
@@ -405,9 +380,6 @@ class ReturnService
         return $q->orderBy('created_at', 'desc')->paginate($perPage);
     }
 
-    /**
-     * Get all returns for a specific original document.
-     */
     public function forOriginal(string $referenceType, int $referenceId): array
     {
         return ReturnModel::with(['items.product', 'contact', 'reason'])
@@ -420,18 +392,111 @@ class ReturnService
 
     // ─── Helpers ───────────────────────────────────────────────
 
-    /**
-     * Find an original line item from a sale or purchase bill.
-     */
+    private function applyStock(ReturnModel $return, $item, bool $isSaleReturn): void
+    {
+        $productId = (int) $item->product_id;
+        $qty = (float) $item->base_quantity;
+        $documentDate = $return->return_date?->format('Y-m-d');
+
+        // Sale returns restore the original sale cost; purchase returns use the
+        // current weighted average.
+        $movementCost = $isSaleReturn
+            ? SaleItem::find($item->reference_item_id)?->cost_price
+            : app(\App\Domains\Inventory\Services\CostResolver::class)
+                ->unitCost(\App\Models\Product::withArchived()->find($productId));
+
+        if ($isSaleReturn) {
+            if ($item->restock) {
+                $this->inventory->recordReturn(
+                    productId: $productId,
+                    quantity: $qty,
+                    returnType: 'sale',
+                    packagingName: $item->packaging_name,
+                    packagingQuantity: (float) $item->quantity,
+                    reference: $return->return_number,
+                    notes: 'Sale return — ' . $return->return_number,
+                    user: $return->created_by,
+                    referenceId: $return->id,
+                    unitCost: $movementCost,
+                    documentDate: $documentDate,
+                );
+                return;
+            }
+
+            // Returned but not resellable: stock in, then written off.
+            $this->inventory->recordAdjustment(
+                productId: $productId,
+                quantity: $qty,
+                type: 'damage',
+                reference: $return->return_number,
+                notes: 'Returned, not resellable — ' . $return->return_number,
+                referenceType: 'return',
+                referenceId: $return->id,
+                user: $return->created_by,
+                unitCost: $movementCost,
+                documentDate: $documentDate,
+            );
+            $this->inventory->recordAdjustment(
+                productId: $productId,
+                quantity: -$qty,
+                type: 'damage',
+                reference: $return->return_number,
+                notes: 'Written off — ' . $return->return_number,
+                referenceType: 'return',
+                referenceId: $return->id,
+                user: $return->created_by,
+                unitCost: $movementCost,
+                documentDate: $documentDate,
+            );
+            return;
+        }
+
+        if ($item->restock) {
+            $this->inventory->recordReturn(
+                productId: $productId,
+                quantity: $qty,
+                returnType: 'purchase',
+                packagingName: $item->packaging_name,
+                packagingQuantity: (float) $item->quantity,
+                reference: $return->return_number,
+                notes: 'Purchase return — ' . $return->return_number,
+                user: $return->created_by,
+                referenceId: $return->id,
+                unitCost: $movementCost,
+                documentDate: $documentDate,
+            );
+        }
+    }
+
+    /** Adjust the original document's return_total / return_status. */
+    private function applyReturnToOriginal(ReturnModel $return, int $sign): void
+    {
+        $isSale = $return->type === 'SALE';
+        $document = $isSale
+            ? Sale::lockForUpdate()->find($return->reference_id)
+            : PurchaseBill::lockForUpdate()->find($return->reference_id);
+
+        if (! $document) {
+            return;
+        }
+
+        $originalTotal = (float) ($isSale ? $document->grand_total : $document->total_amount);
+        $newTotal = max(0, (float) $document->return_total + $sign * (float) $return->grand_total);
+
+        $document->return_total = $newTotal;
+        $document->return_status = $newTotal <= 0 ? 'none' : ($newTotal >= $originalTotal ? 'full' : 'partial');
+        $document->save();
+    }
+
     private function findOriginalItem(string $referenceType, int $itemId): ?array
     {
-        if ($referenceType === 'sale' || $referenceType === 'sale_bill') {
+        if (in_array($referenceType, ['sale', 'sale_bill'], true)) {
             $item = SaleItem::with(['product' => fn ($q) => $q->withArchived()])->find($itemId);
         } else {
             $item = PurchaseBillItem::with(['product' => fn ($q) => $q->withArchived()])->find($itemId);
         }
 
-        if (!$item) {
+        if (! $item) {
             return null;
         }
 
@@ -439,7 +504,7 @@ class ReturnService
             'id' => $item->id,
             'product_id' => $item->product_id,
             'product_name' => $item->product_name ?? $item->product?->name ?? 'Unknown',
-            'quantity' => (float) ($item->packaging_quantity ?? $item->quantity ?? 0),
+            'quantity' => (float) ($item->packaging_quantity ?? 0),
             'base_quantity' => (float) ($item->base_quantity ?? 0),
             'unit_price' => (float) ($item->unit_price ?? 0),
             'total' => (float) ($item->total ?? 0),

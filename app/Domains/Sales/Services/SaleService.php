@@ -26,9 +26,29 @@ class SaleService
         $q = Sale::with('customer')->withCount('items')->where('invoice_number', 'not like', 'RET-%');
 
         if ($query) {
-            $q->where(function ($q) use ($query) {
-                $q->where('invoice_number', 'like', "%{$query}%")
-                  ->orWhere('customer_name', 'like', "%{$query}%");
+            $raw = trim($query);
+            $compact = preg_replace('/[^a-z0-9]/i', '', $raw);
+
+            $q->where(function ($q) use ($raw, $compact) {
+                $q->where('invoice_number', 'like', "%{$raw}%")
+                  ->orWhere('customer_name', 'like', "%{$raw}%")
+                  ->orWhere('payment_status', 'like', "%{$raw}%")
+                  ->orWhere('source', 'like', "%{$raw}%")
+                  ->orWhere('created_by', 'like', "%{$raw}%")
+                  ->orWhere('date', 'like', "%{$raw}%")
+                  ->orWhereRaw('CAST(subtotal AS CHAR) LIKE ?', ["%{$raw}%"])
+                  ->orWhereRaw('CAST(discount AS CHAR) LIKE ?', ["%{$raw}%"])
+                  ->orWhereRaw('CAST(grand_total AS CHAR) LIKE ?', ["%{$raw}%"])
+                  ->orWhereRaw('CAST(amount_paid AS CHAR) LIKE ?', ["%{$raw}%"])
+                  ->orWhereRaw('CAST(outstanding_balance AS CHAR) LIKE ?', ["%{$raw}%"]);
+
+                // "INV 260831 2234" / "inv2608312234" both match INV-260831-2234
+                if ($compact !== '') {
+                    $q->orWhereRaw(
+                        "REPLACE(REPLACE(REPLACE(invoice_number,'-',''),' ',''),'INV','') LIKE ?",
+                        ["%{$compact}%"]
+                    );
+                }
             });
         }
 
@@ -125,8 +145,14 @@ class SaleService
 
                 $baseQty = $itemData->packagingQuantity * $authoritativeBaseUnitQty;
 
-                // Calculate per-unit cost using best-available-cost fallback
-                $costPrice = $product->last_purchase_cost ?? $product->default_purchase_cost ?? 0;
+                // Uncosted opening stock is consumed first and never valued.
+                if ((float) $product->uncosted_qty > 0) {
+                    $product->uncosted_qty = max(0, (float) $product->uncosted_qty - $baseQty);
+                    $product->save();
+                }
+
+                // Best available cost per base unit (average -> opening -> derived).
+                $costPrice = app(\App\Domains\Inventory\Services\CostResolver::class)->unitCost($product);
 
                 // Resolve the display unit name through ProductUnitService so raw
                 // unit_ids like 'kg' become 'Kilogram (kg)', and display names pass through.
@@ -167,20 +193,47 @@ class SaleService
                     user: $data->createdBy,
                     referenceId: $sale->id,
                     bypassStockCheck: $bypassStockCheck,
+                    unitCost: $costPrice,
+                    documentDate: $data->date,
                 );
             }
 
-            // Update customer balance
+            // Update customer balance: the invoice raises it, the initial
+            // payment settles part of it. Both sides must be recorded.
             if ($customer) {
-                $customer->current_balance = ($customer->current_balance ?? 0) + $grandTotal;
-                $customer->save();
+                \App\Domains\Ledger\PartyBalance::apply($customer, $grandTotal);
             }
 
-            // Record financial transaction (mirrors PurchaseService behaviour).
-            // This feeds the Day Book cash position, Financial Overview, and Contact Ledger.
-            // Walk-in customers (no contact) are skipped since contact_id is NOT NULL.
+            $ledger = app(\App\Domains\Ledger\CashLedgerService::class);
+
+            // Initial payment is a real cash receipt — including walk-ins,
+            // which have no contact and were previously never recorded.
+            if ((float) $data->amountPaid > 0) {
+                $ledger->record([
+                    'contact_id' => $customer?->id,
+                    'direction' => 'in',
+                    'type' => 'collection',
+                    'date' => $data->date,
+                    'amount' => $data->amountPaid,
+                    'method' => $data->paymentMethod ?: 'cash',
+                    'reference' => 'RCPT-' . $data->invoiceNumber,
+                    'description' => "Initial payment for {$data->invoiceNumber}",
+                    'linked_sale_id' => $sale->id,
+                    'source_type' => 'sale',
+                    'source_id' => $sale->id,
+                    'event_key' => 'sale-initial:' . $sale->id,
+                    'created_by' => $data->createdBy,
+                ]);
+
+                if ($customer) {
+                    \App\Domains\Ledger\PartyBalance::applyCash($customer, 'collection', (float) $data->amountPaid);
+                }
+            }
+
+            // Invoice memo — a credit document, not cash. Kept for backward
+            // compatibility; every cash report excludes type='invoice'.
             if ($customer) {
-                FinancialTransaction::create([
+                $ledger->record([
                     'contact_id' => $customer->id,
                     'direction' => 'in',
                     'type' => 'invoice',
@@ -190,6 +243,9 @@ class SaleService
                     'reference' => $data->invoiceNumber,
                     'description' => "Sale: {$data->invoiceNumber}",
                     'linked_sale_id' => $sale->id,
+                    'source_type' => 'sale',
+                    'source_id' => $sale->id,
+                    'event_key' => 'sale-invoice:' . $sale->id,
                     'created_by' => $data->createdBy,
                 ]);
             }

@@ -98,6 +98,8 @@ class InventoryService
         ?string $notes = null,
         ?string $user = null,
         ?int $referenceId = null,
+        ?float $unitCost = null,
+        ?string $documentDate = null,
     ): InventoryTransaction {
         return $this->applyMovement(
             productId: $productId,
@@ -110,6 +112,8 @@ class InventoryService
             user: $user,
             referenceType: 'purchase',
             referenceId: $referenceId,
+            unitCost: $unitCost,
+            documentDate: $documentDate,
         );
     }
 
@@ -126,6 +130,8 @@ class InventoryService
         ?string $user = null,
         ?int $referenceId = null,
         bool $bypassStockCheck = false,
+        ?float $unitCost = null,
+        ?string $documentDate = null,
     ): InventoryTransaction {
         return $this->applyMovement(
             productId: $productId,
@@ -139,6 +145,8 @@ class InventoryService
             referenceType: 'sale',
             referenceId: $referenceId,
             bypassStockCheck: $bypassStockCheck,
+            unitCost: $unitCost,
+            documentDate: $documentDate,
         );
     }
 
@@ -155,6 +163,8 @@ class InventoryService
         ?string $notes = null,
         ?string $user = null,
         ?int $referenceId = null,
+        ?float $unitCost = null,
+        ?string $documentDate = null,
     ): InventoryTransaction {
         $direction = $returnType === 'purchase' ? -$quantity : $quantity;
         return $this->applyMovement(
@@ -168,6 +178,8 @@ class InventoryService
             user: $user,
             referenceType: 'return',
             referenceId: $referenceId,
+            unitCost: $unitCost,
+            documentDate: $documentDate,
         );
     }
 
@@ -185,6 +197,8 @@ class InventoryService
         ?string $packagingName = null,
         ?float $packagingQuantity = null,
         ?string $user = null,
+        ?float $unitCost = null,
+        ?string $documentDate = null,
     ): InventoryTransaction {
         return $this->applyMovement(
             productId: $productId,
@@ -197,6 +211,8 @@ class InventoryService
             referenceType: $referenceType ?? 'manual',
             referenceId: $referenceId,
             user: $user,
+            unitCost: $unitCost,
+            documentDate: $documentDate,
         );
     }
 
@@ -215,6 +231,8 @@ class InventoryService
         ?string $referenceType = null,
         ?int $referenceId = null,
         bool $bypassStockCheck = false,
+        ?float $unitCost = null,
+        ?string $documentDate = null,
     ): InventoryTransaction {
         // Lock the product row for concurrency safety
         $product = Product::lockForUpdate()->findOrFail($productId);
@@ -251,10 +269,12 @@ class InventoryService
             'product_id' => $productId,
             'type' => $type,
             'quantity' => $quantity,
+            'unit_cost' => $unitCost,
             'unit' => $product->base_unit_id,
             'packaging_name' => $packagingName,
             'packaging_quantity' => $packagingQuantity,
             'date' => now()->format('Y-m-d'),
+            'document_date' => $documentDate,
             'reference' => $reference ?? 'ADJ-' . now()->format('ymd') . '-' . random_int(1000, 9999),
             'notes' => $notes,
             'user' => $user,

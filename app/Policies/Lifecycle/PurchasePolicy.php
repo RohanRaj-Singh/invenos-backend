@@ -16,6 +16,7 @@ class PurchasePolicy implements Deletable, Restorable, PermanentDeletable
 {
     public function __construct(
         private readonly InventoryService $inventoryService,
+        private readonly \App\Domains\Ledger\CashLedgerService $ledger,
     ) {}
 
     // ─── Delete ────────────────────────────────────────────────
@@ -87,6 +88,15 @@ class PurchasePolicy implements Deletable, Restorable, PermanentDeletable
             $record->supplier->decrement('current_balance', $record->total_amount);
         }
 
+        // Reverse every cash row attached to this bill (initial payment and payouts)
+        $this->ledger->reverseForDocument(
+            'linked_purchase_id',
+            $record->id,
+            $record->supplier,
+            'Purchase deleted',
+            $user->name ?? 'System',
+        );
+
         // Remove the financial transaction that was created with the purchase
         FinancialTransaction::where('reference', $record->invoice_ref)
             ->where('type', 'invoice')
@@ -120,6 +130,14 @@ class PurchasePolicy implements Deletable, Restorable, PermanentDeletable
         if ($record->supplier && $record->total_amount > 0) {
             $record->supplier->increment('current_balance', $record->total_amount);
         }
+
+        // Re-post the cash rows that the deletion reversed
+        $this->ledger->repostForDocument(
+            'linked_purchase_id',
+            $record->id,
+            $record->supplier,
+            $user->name ?? 'System',
+        );
 
         // Re-create the financial transaction
         if ($record->supplier && $record->total_amount > 0) {

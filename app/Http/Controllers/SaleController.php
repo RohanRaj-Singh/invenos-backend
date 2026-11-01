@@ -26,13 +26,16 @@ class SaleController extends Controller
         $dateFrom = request('date_from', '');
         $dateTo = request('date_to', '');
 
+        $perPage = (int) request('per_page', 25);
+        $perPage = $perPage >= 1 ? min($perPage, 1000) : 25;
+
         $sales = $this->saleService->search(
             query: $search,
             customerId: $customerId,
             paymentStatus: $paymentStatus,
             dateFrom: $dateFrom,
             dateTo: $dateTo,
-            perPage: 25,
+            perPage: $perPage,
         );
 
         return Inertia::render('sales/SalesList', [
@@ -43,7 +46,7 @@ class SaleController extends Controller
                 'per_page' => $sales->perPage(),
                 'total' => $sales->total(),
             ],
-            'filters' => ['search' => $search, 'customer_id' => $customerId, 'payment_status' => $paymentStatus, 'date_from' => $dateFrom, 'date_to' => $dateTo],
+            'filters' => ['search' => $search, 'customer_id' => $customerId, 'payment_status' => $paymentStatus, 'date_from' => $dateFrom, 'date_to' => $dateTo, 'per_page' => $perPage],
         ]);
     }
 

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { router, usePage } from '@inertiajs/react'
+import { usePage } from '@inertiajs/react'
 import { ShoppingCart, TrendingUp, Package, Users } from 'lucide-react'
 import { ReportLayout } from './components/ReportLayout'
 import { ReportToolbar } from './components/ReportToolbar'
-import { DateFilter, type DatePreset, getDateRange } from './components/DateFilter'
+import { DateRangeFilter } from '@/features/reporting/components/DateRangeFilter'
+import { useReportDateRange } from '@/features/reporting/hooks/useReportDateRange'
 import { SummaryCards, type SummaryCardDef } from './components/SummaryCards'
 import { ReportTable, type ColumnDef } from './components/ReportTable'
 import { StatusBadge } from './components/StatusBadge'
@@ -48,9 +49,7 @@ export default function SalesReportPage() {
   const [customerData, setCustomerData] = useState<CustomerRow[]>([])
   const [loadingBreakdown, setLoadingBreakdown] = useState(false)
 
-  const handleDateChange = (preset: string, from: string, to: string) => {
-    router.get('/reports/sales', { preset, date_from: from, date_to: to }, { preserveState: true })
-  }
+  const range = useReportDateRange('/reports/sales', filters, { only: ['report', 'filters'] })
 
   const toggleBreakdown = () => {
     if (showBreakdown) {
@@ -114,11 +113,18 @@ export default function SalesReportPage() {
         currentFilters={{ preset: (filters as any).preset || 'thisMonth', date_from: filters.date_from || '', date_to: filters.date_to || '' }}
         onPrint={() => window.print()}
       />}
+      pending={range.pending}
     >
       {/* Date presets */}
-      <DateFilter
-        value={(filters as any).preset || 'thisMonth'}
-        onChange={handleDateChange}
+      <DateRangeFilter
+        preset={range.preset}
+        from={range.from}
+        to={range.to}
+        onPreset={(p) => range.apply(p)}
+        onFromChange={range.setFrom}
+        onToChange={range.setTo}
+        onApplyCustom={() => range.apply('custom', range.from, range.to)}
+        pending={range.pending}
       />
 
       <SummaryCards cards={cards} />

@@ -33,20 +33,8 @@ class ContactService
     {
         $contact = Contact::create($data->toArray());
 
-        // Record opening balance as a financial transaction
-        if ($data->openingBalance > 0) {
-            FinancialTransaction::create([
-                'contact_id' => $contact->id,
-                'direction' => $data->balanceType === 'payable' ? 'out' : 'in',
-                'type' => 'adjustment',
-                'date' => now()->format('Y-m-d'),
-                'amount' => $data->openingBalance,
-                'method' => 'transfer',
-                'reference' => 'OPENING',
-                'description' => 'Opening balance (on creation)',
-                'created_by' => 'System',
-            ]);
-        }
+        // `opening_balance` is the single source of the opening position.
+        // No `OPENING` cash row is created: opening balances are not cash.
 
         return $contact;
     }

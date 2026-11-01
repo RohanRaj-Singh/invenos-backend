@@ -14,6 +14,7 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
 {
     public function __construct(
         private readonly InventoryService $inventoryService,
+        private readonly \App\Domains\Ledger\CashLedgerService $ledger,
     ) {}
 
     // ─── Delete ────────────────────────────────────────────────
@@ -73,6 +74,15 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
             $record->customer->decrement('current_balance', $record->grand_total);
         }
 
+        // Reverse every cash row attached to this sale (initial receipt and collections)
+        $this->ledger->reverseForDocument(
+            'linked_sale_id',
+            $record->id,
+            $record->customer,
+            'Sale deleted',
+            $user->name ?? 'System',
+        );
+
         // Remove the financial transaction that was created with the sale
         FinancialTransaction::where('linked_sale_id', $record->id)
             ->where('type', 'invoice')
@@ -103,6 +113,14 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
         if ($record->customer) {
             $record->customer->increment('current_balance', $record->grand_total);
         }
+
+        // Re-post the cash rows that the deletion reversed
+        $this->ledger->repostForDocument(
+            'linked_sale_id',
+            $record->id,
+            $record->customer,
+            $user->name ?? 'System',
+        );
 
         // Re-create the financial transaction
         if ($record->customer) {

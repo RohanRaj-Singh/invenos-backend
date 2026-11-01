@@ -21,6 +21,7 @@ class ReturnModel extends Model
         'status',
         'subtotal', 'discount', 'grand_total',
         'refund_amount', 'refund_method',
+        'effects_applied_at', 'reversal_of_id',
         'notes', 'created_by',
         'delete_reason', 'deleted_by',
     ];
@@ -31,6 +32,7 @@ class ReturnModel extends Model
         'discount' => 'float',
         'grand_total' => 'float',
         'refund_amount' => 'float',
+        'effects_applied_at' => 'datetime',
     ];
 
     /**
@@ -46,7 +48,7 @@ class ReturnModel extends Model
      */
     public function items(): HasMany
     {
-        return $this->hasMany(ReturnItem::class);
+        return $this->hasMany(ReturnItem::class, 'return_id');
     }
 
     /**

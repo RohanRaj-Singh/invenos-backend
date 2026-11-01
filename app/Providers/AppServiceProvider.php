@@ -22,6 +22,15 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Return documents store lowercase reference types ('sale',
+        // 'purchase_bill'), so the morph map must resolve them to models.
+        \Illuminate\Database\Eloquent\Relations\Relation::morphMap([
+            'sale' => \App\Models\Sale::class,
+            'sale_bill' => \App\Models\Sale::class,
+            'purchase' => \App\Models\PurchaseBill::class,
+            'purchase_bill' => \App\Models\PurchaseBill::class,
+        ]);
+
         Vite::prefetch(concurrency: 3);
 
         // ─── Lifecycle Permission Gates ─────────────────────────

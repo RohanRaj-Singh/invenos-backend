@@ -53,6 +53,7 @@ Route::prefix('sales')->group(function () {
     Route::get('/returns', [SaleReturnController::class, 'index'])->name('sales.returns.index');
     Route::get('/returns/{id}', [SaleReturnController::class, 'show'])->name('sales.returns.show');
     Route::get('/{id}/print', [SaleController::class, 'printInvoice'])->name('sales.print');
+    Route::get('/{id}/pdf', [\App\Http\Controllers\DocumentPdfController::class, 'invoice'])->name('sales.pdf');
     Route::get('/{id}', [SaleController::class, 'show'])->name('sales.show');
     Route::delete('/{id}', [SaleController::class, 'destroy'])->name('sales.destroy');
 });
@@ -115,6 +116,14 @@ Route::prefix('returns')->group(function () {
             'backPath' => '/purchases',
         ]);
     })->name('returns.purchase.create');
+
+    // Canonical return workflow
+    Route::post('/sale', [\App\Http\Controllers\ReturnWorkflowController::class, 'storeSale'])->name('returns.sale.store');
+    Route::post('/purchase', [\App\Http\Controllers\ReturnWorkflowController::class, 'storePurchase'])->name('returns.purchase.store');
+    Route::get('/{id}', [\App\Http\Controllers\ReturnWorkflowController::class, 'show'])->name('returns.show');
+    Route::post('/{id}/complete', [\App\Http\Controllers\ReturnWorkflowController::class, 'complete'])->name('returns.complete');
+    Route::post('/{id}/cancel', [\App\Http\Controllers\ReturnWorkflowController::class, 'cancel'])->name('returns.cancel');
+    Route::post('/{id}/reverse', [\App\Http\Controllers\ReturnWorkflowController::class, 'reverse'])->name('returns.reverse');
 });
 
 Route::prefix('clinic')->group(function () {
@@ -164,10 +173,10 @@ Route::prefix('reports')->group(function () {
     Route::get('/share/{report}', [\App\Http\Controllers\ReportShareController::class, 'share'])->name('reports.share');
     Route::get('/share/download/{path}', [\App\Http\Controllers\ReportShareController::class, 'download'])->name('reports.share.download');
     // Legacy / backup pages
-    Route::get('/cash-flow', fn () => Inertia::render('reports/CashFlowReport'))->name('reports.cash-flow');
+    Route::get('/cash-flow', [ReportController::class, 'cashFlow'])->name('reports.cash-flow');
     Route::get('/pnl', [ReportController::class, 'profit'])->name('reports.pnl');
-    Route::get('/balance-sheet', fn () => Inertia::render('reports/BalanceSheetReport'))->name('reports.balance-sheet');
-    Route::get('/party', fn () => Inertia::render('reports/PartyReport'))->name('reports.party');
+    Route::get('/balance-sheet', [ReportController::class, 'balanceSheet'])->name('reports.balance-sheet');
+    Route::get('/party', [ReportController::class, 'party'])->name('reports.party');
 });
 
 Route::prefix('settings')->group(function () {

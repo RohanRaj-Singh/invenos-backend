@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { router, usePage, Link } from '@inertiajs/react'
+import { usePage, Link } from '@inertiajs/react'
 import {
   BookOpen, TrendingUp, TrendingDown, DollarSign, ShoppingCart, ShoppingBag,
   Wallet, RotateCcw, ArrowLeftRight, AlertTriangle, CheckCircle2,
@@ -13,6 +13,8 @@ import { ReportTable, type ColumnDef } from './components/ReportTable'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
+import { DateRangeFilter } from '@/features/reporting/components/DateRangeFilter'
+import { useReportDateRange } from '@/features/reporting/hooks/useReportDateRange'
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -58,6 +60,7 @@ export default function DayBookReportPage() {
   const { props } = usePage()
   const report = (props as any).report || { events: [], summary: {}, cash_summary: {}, highlights: {}, health: {}, closing_summary: {}, trends: {} }
   const filters = (props as any).filters || {}
+  const range = useReportDateRange('/reports/day-book', filters, { only: ['report', 'filters'] })
 
   const events: DayBookEvent[] = report.events || []
   const summary: any = report.summary || {}
@@ -160,33 +163,19 @@ export default function DayBookReportPage() {
         currentFilters={{ preset: (filters as any).preset || 'today' }}
         onPrint={() => window.print()}
       />}
+      pending={range.pending}
     >
-      {/* ─── Date preset filters ─── */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {[
-          { value: 'today', label: 'Today' },
-          { value: 'yesterday', label: 'Yesterday' },
-          { value: 'thisWeek', label: 'This Week' },
-          { value: 'lastWeek', label: 'Last Week' },
-          { value: 'thisMonth', label: 'This Month' },
-          { value: 'lastMonth', label: 'Last Month' },
-          { value: 'quarter', label: 'This Quarter' },
-          { value: 'year', label: 'This Year' },
-        ].map((p) => (
-          <button
-            key={p.value}
-            onClick={() => router.get('/reports/day-book', { preset: p.value }, { preserveState: true })}
-            className={cn(
-              'text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors',
-              (filters.preset || 'thisMonth') === p.value
-                ? 'bg-foreground text-background border-foreground'
-                : 'bg-background text-muted-foreground border-border hover:text-foreground',
-            )}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
+      {/* ─── Date presets ─── */}
+      <DateRangeFilter
+        preset={range.preset}
+        from={range.from}
+        to={range.to}
+        onPreset={(p) => range.apply(p)}
+        onFromChange={range.setFrom}
+        onToChange={range.setTo}
+        onApplyCustom={() => range.apply('custom', range.from, range.to)}
+        pending={range.pending}
+      />
 
       {/* ══��═════════════════════════════════════════════════════
          Section 2: Today's Performance

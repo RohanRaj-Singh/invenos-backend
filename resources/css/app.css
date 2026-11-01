@@ -1,4 +1,5 @@
 @import "@fontsource-variable/geist";
+@import "./print.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

@@ -37,6 +37,7 @@ export default function SalePrintPage() {
         partyName={customer.name || s.customer_name}
         total={s.grand_total || 0}
         outstanding={s.outstanding_balance || 0}
+        pdfUrl={`/sales/${s.id}/pdf`}
       />
 
       <PrintLayout>

@@ -115,6 +115,11 @@ class PurchaseService
                 );
 
                 $unitName = $this->productUnitService->resolveDisplayUnit($product->base_unit_id);
+
+                // `unit_cost` is per purchase pack; inventory is held in base units.
+                $packQty = (float) $itemData->purchasePackQty;
+                $costPerBase = $packQty > 0 ? ((float) $itemData->unitCost / $packQty) : null;
+
                 PurchaseBillItem::create([
                     'purchase_bill_id' => $bill->id,
                     'product_id' => $product->id,
@@ -125,6 +130,7 @@ class PurchaseService
                     'purchase_pack_qty' => $itemData->purchasePackQty,
                     'purchase_quantity' => $itemData->purchaseQuantity,
                     'unit_cost' => $itemData->unitCost,
+                    'unit_cost_base' => $costPerBase,
                     'total_cost' => $itemData->unitCost * $itemData->purchaseQuantity,
                     'discount_pct' => $itemData->discountPct,
                 ]);
@@ -133,6 +139,29 @@ class PurchaseService
                 if ($product->default_purchase_cost === null) {
                     $product->default_purchase_cost = $itemData->unitCost;
                 }
+
+                // Weighted average over costed quantity only.
+                if ($costPerBase !== null) {
+                    $qtyOnHand = (float) $product->stock_quantity;
+                    $uncosted = (float) ($product->uncosted_qty ?? 0);
+                    $oldAvg = $product->average_cost ?? $product->opening_cost;
+                    $inQty = (float) $baseQuantity;
+
+                    if ($oldAvg === null) {
+                        // Existing stock has no reliable cost: keep it uncosted
+                        // rather than pretending it was bought at this price.
+                        if ($qtyOnHand > 0) {
+                            $product->uncosted_qty = $uncosted + $qtyOnHand;
+                        }
+                        $product->average_cost = $costPerBase;
+                    } else {
+                        $costedQty = max(0, $qtyOnHand - $uncosted);
+                        $product->average_cost = ($costedQty + $inQty) > 0
+                            ? (($costedQty * $oldAvg) + ($inQty * $costPerBase)) / ($costedQty + $inQty)
+                            : $costPerBase;
+                    }
+                }
+
                 $product->save();
 
                 $this->inventoryService->recordPurchase(
@@ -144,14 +173,39 @@ class PurchaseService
                     notes: "Purchase from {$supplier->name}",
                     user: $data->createdBy,
                     referenceId: $bill->id,
+                    unitCost: $costPerBase,
+                    documentDate: $data->date,
                 );
             }
 
-            $supplier->current_balance = ($supplier->current_balance ?? 0) + $totalAmount;
-            $supplier->save();
+            // The bill raises the payable; the initial payment settles part of it.
+            \App\Domains\Ledger\PartyBalance::apply($supplier, $totalAmount);
 
+            $ledger = app(\App\Domains\Ledger\CashLedgerService::class);
+
+            if ((float) $data->amountPaid > 0) {
+                $ledger->record([
+                    'contact_id' => $supplier->id,
+                    'direction' => 'out',
+                    'type' => 'payout',
+                    'date' => $data->date,
+                    'amount' => $data->amountPaid,
+                    'method' => $data->paymentMethod ?: 'cash',
+                    'reference' => 'PAY-' . $data->invoiceRef,
+                    'description' => "Initial payment for {$data->invoiceRef}",
+                    'linked_purchase_id' => $bill->id,
+                    'source_type' => 'purchase_bill',
+                    'source_id' => $bill->id,
+                    'event_key' => 'purchase-initial:' . $bill->id,
+                    'created_by' => $data->createdBy,
+                ]);
+
+                \App\Domains\Ledger\PartyBalance::applyCash($supplier, 'payout', (float) $data->amountPaid);
+            }
+
+            // Invoice memo — not cash.
             if ($totalAmount > 0) {
-                FinancialTransaction::create([
+                $ledger->record([
                     'contact_id' => $supplier->id,
                     'direction' => 'out',
                     'type' => 'invoice',
@@ -160,6 +214,10 @@ class PurchaseService
                     'method' => $data->paymentMethod,
                     'reference' => $data->invoiceRef,
                     'description' => "Purchase: {$data->invoiceRef}",
+                    'linked_purchase_id' => $bill->id,
+                    'source_type' => 'purchase_bill',
+                    'source_id' => $bill->id,
+                    'event_key' => 'purchase-invoice:' . $bill->id,
                     'created_by' => $data->createdBy,
                 ]);
             }

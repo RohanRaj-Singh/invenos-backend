@@ -97,7 +97,7 @@ export function ReportToolbar({
   const handleRefresh = onRefresh || (() => window.location.reload())
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" data-print="hide">
       {/* Print */}
       <button onClick={handlePrint}
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors cursor-pointer"

@@ -5,6 +5,7 @@ import Header from './Header'
 import BottomNav from './BottomNav'
 import { cn } from '@/lib/utils'
 import { useFlashToasts } from '@/features/shared/use-flash-toasts'
+import { RouteProgress } from '@/components/RouteProgress'
 
 interface AppLayoutProps {
   children?: ReactNode
@@ -29,11 +30,13 @@ export default function AppLayout({ children, title }: AppLayoutProps) {
   return (
     <>
       <Head title={title ?? 'Invenos'} />
+      <RouteProgress />
 
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="app-shell flex h-screen overflow-hidden bg-background">
         {/* Mobile sidebar overlay */}
         {sidebarOpen && (
           <div
+            data-print="hide"
             className="fixed inset-0 z-40 bg-black/30 md:hidden"
             onClick={() => setSidebarOpen(false)}
           />
@@ -41,6 +44,7 @@ export default function AppLayout({ children, title }: AppLayoutProps) {
 
         {/* Mobile sidebar drawer */}
         <div
+          data-print="hide"
           className={cn(
             'fixed inset-y-0 left-0 z-50 w-64 flex flex-col bg-background border-r border-border transform transition-transform duration-200 ease-in-out md:hidden',
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -50,7 +54,7 @@ export default function AppLayout({ children, title }: AppLayoutProps) {
         </div>
 
         {/* Desktop sidebar */}
-        <div className="hidden md:block">
+        <div className="hidden md:block" data-print="hide">
           <Sidebar />
         </div>
 
@@ -62,13 +66,15 @@ export default function AppLayout({ children, title }: AppLayoutProps) {
             onToggleDark={() => setDark(!dark)}
           />
 
-          <main className="flex-1 overflow-y-auto">
+          <main className="app-main flex-1 overflow-y-auto">
             {children}
           </main>
         </div>
 
         {/* Bottom navigation (mobile only) */}
-        <BottomNav />
+        <div data-print="hide">
+          <BottomNav />
+        </div>
       </div>
     </>
   )

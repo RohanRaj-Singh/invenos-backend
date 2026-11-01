@@ -1,11 +1,12 @@
-import { router, usePage } from '@inertiajs/react'
+import { usePage } from '@inertiajs/react'
 import { TrendingUp } from 'lucide-react'
 import { ReportLayout } from './components/ReportLayout'
 import { ReportToolbar } from './components/ReportToolbar'
-import { DateFilter, type DatePreset } from './components/DateFilter'
 import { SummaryCards } from './components/SummaryCards'
 import { ReportRow } from './components/ReportRow'
 import { ReportTable, type ColumnDef } from './components/ReportTable'
+import { DateRangeFilter } from '@/features/reporting/components/DateRangeFilter'
+import { useReportDateRange } from '@/features/reporting/hooks/useReportDateRange'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -38,12 +39,7 @@ export default function PnLReport() {
   const { props } = usePage()
   const report: ProfitData = (props as any).report || { revenue: 0, sale_returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, gross_margin_pct: 0, total_expenses: 0, net_profit: 0, bill_wise: [] }
   const filters = (props as any).filters || {}
-
-  const currentPreset: DatePreset = 'thisMonth'
-
-  const handleDateChange = (_preset: DatePreset, from: string, to: string) => {
-    router.get('/reports/pnl', { date_from: from, date_to: to }, { preserveState: true })
-  }
+  const range = useReportDateRange('/reports/pnl', filters, { only: ['report', 'filters'] })
 
   const billColumns: ColumnDef<BillWiseRow>[] = [
     { key: 'invoice_number', header: 'Invoice', render: (r) => <span className="font-medium font-mono text-xs">{r.invoice_number}</span>, sortable: true, sortValue: (r) => r.invoice_number },
@@ -57,8 +53,17 @@ export default function PnLReport() {
   ]
 
   return (
-    <ReportLayout title="Profit & Loss" subtitle="Revenue, costs and profitability analysis" icon={<TrendingUp className="size-5 text-primary" />} toolbar={<ReportToolbar onPrint={() => window.print()} />}>
-      <DateFilter value={currentPreset} onChange={handleDateChange} />
+    <ReportLayout title="Profit & Loss" subtitle="Revenue, costs and profitability analysis" icon={<TrendingUp className="size-5 text-primary" />} toolbar={<ReportToolbar onPrint={() => window.print()} />} pending={range.pending}>
+      <DateRangeFilter
+        preset={range.preset}
+        from={range.from}
+        to={range.to}
+        onPreset={(p) => range.apply(p)}
+        onFromChange={range.setFrom}
+        onToChange={range.setTo}
+        onApplyCustom={() => range.apply('custom', range.from, range.to)}
+        pending={range.pending}
+      />
 
       <SummaryCards cards={[
         { label: 'Gross Revenue', value: formatCurrency(report.revenue), positive: true },

@@ -12,7 +12,7 @@ class ReturnItem extends Model
         'return_id',
         'reference_item_type', 'reference_item_id',
         'product_id', 'product_name', 'selling_unit_id', 'packaging_name',
-        'quantity', 'base_quantity', 'unit_price', 'total',
+        'quantity', 'base_quantity', 'unit_price', 'total', 'restock',
         'reason_id', 'notes',
     ];
 
@@ -21,6 +21,7 @@ class ReturnItem extends Model
         'base_quantity' => 'float',
         'unit_price' => 'float',
         'total' => 'float',
+        'restock' => 'boolean',
     ];
 
     /**

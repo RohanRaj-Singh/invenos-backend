@@ -51,26 +51,22 @@ class FinancialReportService
         $grossProfit = $netSales - $cogs;
         $netProfit = $grossProfit - $totalExpenses;
 
-        // ─── Cash ──────────────────────────────────────────────
-        $cashIn = FinancialTransaction::whereBetween('date', [$from, $to])
-            ->where('direction', 'in')->sum('amount');
-        $cashOut = FinancialTransaction::whereBetween('date', [$from, $to])
-            ->where('direction', 'out')->sum('amount');
-
-        $allCashIn = FinancialTransaction::where('direction', 'in')->sum('amount');
-        $allCashOut = FinancialTransaction::where('direction', 'out')->sum('amount');
+        // ─── Cash (actual movements only; invoice memos excluded) ──
+        $cash = app(\App\Domains\Ledger\CashLedgerService::class)->summary($from, $to);
+        $cashIn = $cash['total_in'];
+        $cashOut = $cash['total_out'];
 
         // ─── Outstanding ───────────────────────────────────────
         $receivables = Sale::where('outstanding_balance', '>', 0)->sum('outstanding_balance');
         $payables = PurchaseBill::where('outstanding_balance', '>', 0)->sum('outstanding_balance');
 
-        // ─── Inventory Value ────────────────────────────────────
-        $products = Product::with('sellingUnits')->get();
-        $inventoryValue = 0;
-        foreach ($products as $p) {
-            $cost = $p->sellingUnits->min('sale_price') ?? 0;
-            $inventoryValue += $p->stock_quantity * $cost;
-        }
+        // ─── Inventory Value (cost basis, uncosted stock excluded) ──
+        $inventoryValue = (float) DB::table('products')
+            ->whereNull('deleted_at')
+            ->whereNull('archived_at')
+            ->where('track_inventory', true)
+            ->selectRaw('COALESCE(SUM(GREATEST(stock_quantity - COALESCE(uncosted_qty,0), 0) * COALESCE(average_cost, opening_cost, last_purchase_cost, default_purchase_cost, 0)), 0) as v')
+            ->value('v');
 
         return [
             'summary' => [
@@ -79,7 +75,7 @@ class FinancialReportService
                 'total_expenses' => round($totalExpenses),
                 'sale_returns' => round($saleReturns),
                 'purchase_returns' => round($purchaseReturns),
-                'cash_balance' => round($allCashIn - $allCashOut),
+                'cash_balance' => round($cash['closing_balance']),
                 'receivables' => round($receivables),
                 'payables' => round($payables),
                 'inventory_value' => round($inventoryValue),
@@ -109,6 +105,113 @@ class FinancialReportService
                 'payables' => round($payables),
                 'net_position' => round($receivables - $payables),
             ],
+        ];
+    }
+
+    /**
+     * Cash Flow — actual cash movements only, from the shared ledger.
+     */
+    public function cashFlow(ReportFilters $filters): array
+    {
+        $range = \App\Domains\Reports\Support\DateRangeResolver::resolve(
+            $filters->preset,
+            $filters->dateFrom,
+            $filters->dateTo,
+        );
+
+        $cash = app(\App\Domains\Ledger\CashLedgerService::class)
+            ->summary($range['from'], $range['to']);
+
+        return [
+            'period' => ['from' => $range['from'], 'to' => $range['to']],
+            'summary' => [
+                'opening_balance' => $cash['opening_balance'],
+                'total_in' => $cash['total_in'],
+                'total_out' => $cash['total_out'],
+                'closing_balance' => $cash['closing_balance'],
+            ],
+            'rows' => $cash['rows'],
+            'generated_at' => now()->toDateTimeString(),
+        ];
+    }
+
+    /**
+     * Financial Position — a management view, as of the period end.
+     * Owner capital is the balancing figure and is labelled as derived;
+     * the statement discloses any unreconciled difference instead of hiding it.
+     */
+    public function balanceSheet(ReportFilters $filters): array
+    {
+        $range = \App\Domains\Reports\Support\DateRangeResolver::resolve(
+            $filters->preset,
+            $filters->dateFrom,
+            $filters->dateTo,
+        );
+        $asOf = $range['to'];
+
+        $cash = app(\App\Domains\Ledger\CashLedgerService::class)
+            ->summary('2000-01-01', $asOf)['closing_balance'];
+
+        $inventory = (float) DB::table('products')
+            ->whereNull('deleted_at')
+            ->whereNull('archived_at')
+            ->where('track_inventory', true)
+            ->selectRaw('COALESCE(SUM(GREATEST(stock_quantity - COALESCE(uncosted_qty,0), 0) * COALESCE(average_cost, opening_cost, last_purchase_cost, default_purchase_cost, 0)), 0) as v')
+            ->value('v');
+
+        $receivables = (float) Sale::whereNull('deleted_at')
+            ->where('date', '<=', $asOf)
+            ->where('outstanding_balance', '>', 0)
+            ->sum('outstanding_balance');
+
+        $payables = (float) PurchaseBill::whereNull('deleted_at')
+            ->where('date', '<=', $asOf)
+            ->where('outstanding_balance', '>', 0)
+            ->sum('outstanding_balance');
+
+        $salesUpTo = (float) Sale::whereNull('deleted_at')->where('date', '<=', $asOf)->sum('grand_total');
+        $returnsUpTo = (float) ReturnModel::where('type', 'SALE')->where('status', 'completed')
+            ->where('return_date', '<=', $asOf)->sum('grand_total');
+        $cogsUpTo = (float) DB::table('sale_items')
+            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
+            ->whereNull('sales.deleted_at')
+            ->where('sales.date', '<=', $asOf)
+            ->selectRaw('COALESCE(SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)), 0) as v')
+            ->value('v');
+        $expensesUpTo = (float) Expense::where('date', '<=', $asOf)->sum('amount');
+
+        $retainedEarnings = ($salesUpTo - $returnsUpTo) - $cogsUpTo - $expensesUpTo;
+
+        $totalAssets = $cash + $inventory + $receivables;
+        $totalLiabilities = $payables;
+        $ownerCapital = $totalAssets - $totalLiabilities - $retainedEarnings;
+        $totalEquity = $ownerCapital + $retainedEarnings;
+
+        return [
+            'period' => ['from' => $range['from'], 'to' => $asOf],
+            'view' => 'management',
+            'assets' => [
+                'cash_and_bank' => round($cash),
+                'inventory' => round($inventory),
+                'accounts_receivable' => round($receivables),
+                'total_assets' => round($totalAssets),
+            ],
+            'liabilities' => [
+                'accounts_payable' => round($payables),
+                'short_term_debt' => 0,
+                'total_liabilities' => round($totalLiabilities),
+            ],
+            'equity' => [
+                'owner_capital' => round($ownerCapital),
+                'retained_earnings' => round($retainedEarnings),
+                'total_equity' => round($totalEquity),
+            ],
+            'totals' => [
+                'liabilities_plus_equity' => round($totalLiabilities + $totalEquity),
+                'difference' => round($totalAssets - ($totalLiabilities + $totalEquity), 2),
+                'balanced' => abs($totalAssets - ($totalLiabilities + $totalEquity)) < 1.0,
+            ],
+            'generated_at' => now()->toDateTimeString(),
         ];
     }
 }

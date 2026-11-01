@@ -6,6 +6,8 @@ import { ReportToolbar } from './components/ReportToolbar'
 import { SummaryCards, type SummaryCardDef } from './components/SummaryCards'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { DateRangeFilter } from '@/features/reporting/components/DateRangeFilter'
+import { useReportDateRange } from '@/features/reporting/hooks/useReportDateRange'
 
 interface FinancialSummary {
   total_sales: number
@@ -30,6 +32,8 @@ export default function FinancialOverviewPage() {
   const expenses = report.expenses || {}
   const cashFlow = report.cash_flow || {}
   const outstanding = report.outstanding || {}
+  const filters = (props as any).filters || {}
+  const range = useReportDateRange('/reports/financial-overview', filters, { only: ['report', 'filters'] })
 
   const cards: SummaryCardDef[] = useMemo(() => [
     { label: 'Gross Profit', value: formatCurrency(s.gross_profit || 0), positive: (s.gross_profit || 0) >= 0, negative: (s.gross_profit || 0) < 0 },
@@ -46,7 +50,19 @@ export default function FinancialOverviewPage() {
       subtitle="Where your money is — income, expenses, cash, and outstanding"
       icon={<BarChart3 className="size-5 text-primary" />}
       toolbar={<ReportToolbar onPrint={() => window.print()} />}
+      pending={range.pending}
     >
+      <DateRangeFilter
+        preset={range.preset}
+        from={range.from}
+        to={range.to}
+        onPreset={(p) => range.apply(p)}
+        onFromChange={range.setFrom}
+        onToChange={range.setTo}
+        onApplyCustom={() => range.apply('custom', range.from, range.to)}
+        pending={range.pending}
+      />
+
       <SummaryCards cards={cards} />
 
       {/* Profit Section */}

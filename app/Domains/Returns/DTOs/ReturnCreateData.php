@@ -54,7 +54,7 @@ class ReturnCreateData
             refundAmount: (float) ($data['refund_amount'] ?? 0),
             refundMethod: $data['refund_method'] ?? 'cash',
             notes: $data['notes'] ?? null,
-            createdBy: $data['created_by'] ?? auth()->user()->name ?? 'System',
+            createdBy: $data['created_by'] ?? auth()->user()?->name ?? 'System',
         );
     }
 

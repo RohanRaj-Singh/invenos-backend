@@ -59,6 +59,21 @@ class ExpenseController extends Controller
             'created_by' => auth()->user()?->name ?? 'System',
         ]);
 
+        app(\App\Domains\Ledger\CashLedgerService::class)->record([
+            'contact_id' => null,
+            'direction' => 'out',
+            'type' => 'payout',
+            'date' => \Illuminate\Support\Carbon::parse($expense->date)->format('Y-m-d'),
+            'amount' => (float) $expense->amount,
+            'method' => $expense->payment_method ?: 'cash',
+            'reference' => $expense->expense_number,
+            'description' => 'Expense: ' . ($expense->paid_to ?: 'N/A'),
+            'source_type' => 'expense',
+            'source_id' => $expense->id,
+            'event_key' => 'expense:' . $expense->id,
+            'created_by' => auth()->user()?->name ?? 'System',
+        ]);
+
         return redirect()->route('expenses.index')
             ->with('success', 'Expense recorded successfully.');
     }
@@ -103,6 +118,34 @@ class ExpenseController extends Controller
             'payment_method' => $data['payment_method'] ?? 'cash',
             'notes' => $data['notes'] ?? null,
             'date' => $data['date'],
+        ]);
+
+        // An edited expense is a reversed posting plus a new one — never a
+        // silent change to historical cash.
+        $ledger = app(\App\Domains\Ledger\CashLedgerService::class);
+        $previous = \App\Models\FinancialTransaction::where('source_type', 'expense')
+            ->where('source_id', $expense->id)
+            ->whereNull('reversed_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($previous) {
+            $ledger->reverse($previous, 'Expense updated', auth()->user()?->name);
+        }
+
+        $ledger->record([
+            'contact_id' => null,
+            'direction' => 'out',
+            'type' => 'payout',
+            'date' => \Illuminate\Support\Carbon::parse($expense->date)->format('Y-m-d'),
+            'amount' => (float) $expense->amount,
+            'method' => $expense->payment_method ?: 'cash',
+            'reference' => $expense->expense_number,
+            'description' => 'Expense: ' . ($expense->paid_to ?: 'N/A'),
+            'source_type' => 'expense',
+            'source_id' => $expense->id,
+            'event_key' => 'expense:' . $expense->id . ':' . now()->format('YmdHis'),
+            'created_by' => auth()->user()?->name ?? 'System',
         ]);
 
         return redirect()->route('expenses.index')

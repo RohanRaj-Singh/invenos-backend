@@ -221,17 +221,16 @@ class DayBookReportService
         $netProfit = $grossProfit - $totalExpenses;
 
         // ─── Section 3: Cash Summary ────────────────────────────
-        $cashInBefore = FinancialTransaction::where('date', '<', $from)
-            ->where('direction', 'in')->sum('amount');
-        $cashOutBefore = FinancialTransaction::where('date', '<', $from)
-            ->where('direction', 'out')->sum('amount');
-        $openingCash = $cashInBefore - $cashOutBefore;
+        // Actual cash only — invoice memos and opening positions are excluded.
+        $ledger = app(\App\Domains\Ledger\CashLedgerService::class);
+        $cash = $ledger->summary($from, $to);
 
-        $cashReceived = FinancialTransaction::whereBetween('date', [$from, $to])
-            ->where('direction', 'in')->sum('amount');
-        $cashPaid = FinancialTransaction::whereBetween('date', [$from, $to])
-            ->where('direction', 'out')->sum('amount');
-        $closingCash = $openingCash + $cashReceived - $cashPaid;
+        $cashInBefore = $ledger->inBefore($from);
+        $cashOutBefore = $ledger->outBefore($from);
+        $openingCash = $cash['opening_balance'];
+        $cashReceived = $cash['total_in'];
+        $cashPaid = $cash['total_out'];
+        $closingCash = $cash['closing_balance'];
 
         // Opening balance explanation
         $openingExplanation = '';

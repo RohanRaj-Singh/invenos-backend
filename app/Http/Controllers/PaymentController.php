@@ -54,6 +54,7 @@ class PaymentController extends Controller
             'amount' => 'required|numeric|min:1',
             'method' => 'required|string',
             'reference' => 'nullable|string',
+            'date' => 'nullable|date',
             'created_by' => 'required|string',
         ]));
         $this->paymentService->recordCustomerPayment($data);
@@ -68,6 +69,7 @@ class PaymentController extends Controller
             'amount' => 'required|numeric|min:1',
             'method' => 'required|string',
             'reference' => 'nullable|string',
+            'date' => 'nullable|date',
             'created_by' => 'required|string',
         ]));
         $this->paymentService->recordSupplierPayment($data);
@@ -90,8 +92,10 @@ class PaymentController extends Controller
         $contact = Contact::findOrFail($data['contact_id']);
 
         \Illuminate\Support\Facades\DB::transaction(function () use ($data, $contact) {
-            FinancialTransaction::create([
-                'type' => $data['direction'] === 'in' ? 'collection' : 'payout',
+            $type = $data['direction'] === 'in' ? 'collection' : 'payout';
+
+            app(\App\Domains\Ledger\CashLedgerService::class)->record([
+                'type' => $type,
                 'contact_id' => $contact->id,
                 'direction' => $data['direction'],
                 'amount' => $data['amount'],
@@ -99,13 +103,14 @@ class PaymentController extends Controller
                 'reference' => $data['reference'],
                 'description' => $data['description'] ?? null,
                 'date' => $data['date'],
+                'source_type' => 'manual',
+                'event_key' => $type . ':' . $contact->id . ':' . $data['reference'],
                 'created_by' => $data['created_by'],
             ]);
 
-            // Update contact balance:
-            // Money In (customer pays us) → balance decreases
-            // Money Out (we pay supplier) → balance decreases
-            $contact->decrement('current_balance', $data['amount']);
+            // Settlements move the balance toward zero; refunds move it away
+            // from zero. PartyBalance owns that rule.
+            \App\Domains\Ledger\PartyBalance::applyCash($contact, $type, (float) $data['amount']);
         });
 
         return back()->with('success', 'Payment recorded successfully.');
@@ -129,14 +134,46 @@ class PaymentController extends Controller
         DB::transaction(function () use ($id) {
             $transaction = FinancialTransaction::with('contact')->lockForUpdate()->findOrFail($id);
 
-            // Reverse the contact balance that was decremented when the payment was created
-            if ($transaction->contact) {
-                $transaction->contact->increment('current_balance', $transaction->amount);
+            abort_unless(
+                app(\App\Domains\Ledger\CashLedgerService::class)->isCashType($transaction->type),
+                422,
+                'Only cash movements can be reversed.'
+            );
+
+            // Restore the linked document's paid amount.
+            if ($transaction->linked_sale_id && ($sale = \App\Models\Sale::lockForUpdate()->find($transaction->linked_sale_id))) {
+                $paid = max(0.0, (float) $sale->amount_paid - (float) $transaction->amount);
+                $outstanding = max(0.0, (float) $sale->grand_total - $paid);
+                $sale->update([
+                    'amount_paid' => $paid,
+                    'outstanding_balance' => $outstanding,
+                    'payment_status' => $outstanding <= 0 ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
+                ]);
             }
 
-            $transaction->delete();
+            if ($transaction->linked_purchase_id && ($bill = \App\Models\PurchaseBill::lockForUpdate()->find($transaction->linked_purchase_id))) {
+                $paid = max(0.0, (float) $bill->amount_paid - (float) $transaction->amount);
+                $outstanding = max(0.0, (float) $bill->total_amount - $paid);
+                $bill->update([
+                    'amount_paid' => $paid,
+                    'outstanding_balance' => $outstanding,
+                    'payment_status' => $outstanding <= 0 ? 'paid' : ($paid > 0 ? 'partial' : 'unpaid'),
+                ]);
+            }
+
+            \App\Domains\Ledger\PartyBalance::reverseCash(
+                $transaction->contact,
+                $transaction->type,
+                (float) $transaction->amount,
+            );
+
+            app(\App\Domains\Ledger\CashLedgerService::class)->reverse(
+                $transaction,
+                'Payment reversed',
+                auth()->user()?->name,
+            );
         });
 
-        return back()->with('success', 'Payment deleted. Contact balance restored.');
+        return back()->with('success', 'Payment reversed. Contact balance and invoice restored.');
     }
 }

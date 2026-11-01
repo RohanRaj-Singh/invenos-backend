@@ -27,7 +27,8 @@ class InventoryReportService
 
         $base = $this->scopedProducts($filters)->get([
             'id', 'name', 'sku', 'status', 'stock_quantity', 'low_stock_threshold',
-            'last_purchase_cost', 'default_purchase_cost', 'base_unit_id', 'category_id',
+            'last_purchase_cost', 'default_purchase_cost', 'opening_cost', 'average_cost', 'uncosted_qty',
+            'base_unit_id', 'category_id',
         ]);
 
         $productIds = $base->pluck('id')->all();
@@ -36,7 +37,8 @@ class InventoryReportService
         $summary = [
             'total_products' => $base->count(),
             'total_stock' => round($base->sum('stock_quantity')),
-            'total_value' => round($base->sum(fn ($p) => $p->stock_quantity * $this->productCost($p))),
+            'total_value' => round($base->sum(fn ($p) => max(0, (float) $p->stock_quantity - (float) $p->uncosted_qty) * $this->productCost($p))),
+            'uncosted_units' => round($base->sum('uncosted_qty')),
             'low_stock' => $base->where('status', 'low-stock')->count(),
             'out_of_stock' => $base->where('status', 'out-of-stock')->count(),
             'negative_stock' => $base->where('stock_quantity', '<', 0)->count(),
@@ -64,7 +66,7 @@ class InventoryReportService
                 'unit' => $p->base_unit_name,
                 'quantity' => $p->stock_quantity,
                 'cost' => $this->productCost($p),
-                'value' => round($p->stock_quantity * $this->productCost($p)),
+                'value' => round(max(0, (float) $p->stock_quantity - (float) $p->uncosted_qty) * $this->productCost($p)),
                 'status' => $p->status,
             ])
             ->sortByDesc('value')
@@ -110,7 +112,7 @@ class InventoryReportService
             return [
                 'category' => $name,
                 'products' => $group->count(),
-                'value' => round($group->sum(fn ($p) => $p->stock_quantity * $this->productCost($p))),
+                'value' => round($group->sum(fn ($p) => max(0, (float) $p->stock_quantity - (float) $p->uncosted_qty) * $this->productCost($p))),
             ];
         })->sortByDesc('value')->values()->all();
 
@@ -148,7 +150,8 @@ class InventoryReportService
     {
         $base = $this->scopedProducts($filters)->get([
             'id', 'name', 'sku', 'status', 'stock_quantity', 'low_stock_threshold',
-            'last_purchase_cost', 'default_purchase_cost', 'base_unit_id', 'category_id',
+            'last_purchase_cost', 'default_purchase_cost', 'opening_cost', 'average_cost', 'uncosted_qty',
+            'base_unit_id', 'category_id',
         ]);
 
         $productIds = $base->pluck('id')->all();
@@ -159,7 +162,7 @@ class InventoryReportService
             return [
                 'category' => $name,
                 'products' => $group->count(),
-                'value' => round($group->sum(fn ($p) => $p->stock_quantity * $this->productCost($p))),
+                'value' => round($group->sum(fn ($p) => max(0, (float) $p->stock_quantity - (float) $p->uncosted_qty) * $this->productCost($p))),
             ];
         })->sortByDesc('value')->values()->all();
 
@@ -225,24 +228,33 @@ class InventoryReportService
      */
     public function lowStock(ReportFilters $filters): array
     {
-        $products = Product::with('category')
+        $query = Product::with('category')
             ->whereIn('status', ['low-stock', 'out-of-stock'])
             ->when($filters->categoryId, fn ($q) => $q->where('category_id', $filters->categoryId))
             ->when($filters->search, fn ($q) => $q->where(function ($q) use ($filters) {
                 $q->where('name', 'like', "%{$filters->search}%")
                   ->orWhere('sku', 'like', "%{$filters->search}%");
             }))
-            ->orderBy('stock_quantity')
-            ->paginate($filters->perPage);
+            ->orderBy('stock_quantity');
+
+        if ($filters->perPage > 0) {
+            $products = $query->paginate($filters->perPage);
+            return [
+                'products' => $products->items(),
+                'meta' => [
+                    'current_page' => $products->currentPage(),
+                    'last_page' => $products->lastPage(),
+                    'per_page' => $products->perPage(),
+                    'total' => $products->total(),
+                ],
+            ];
+        }
+
+        $products = $query->get();
 
         return [
-            'products' => $products->items(),
-            'meta' => [
-                'current_page' => $products->currentPage(),
-                'last_page' => $products->lastPage(),
-                'per_page' => $products->perPage(),
-                'total' => $products->total(),
-            ],
+            'products' => $products,
+            'meta' => null,
         ];
     }
 
@@ -298,10 +310,16 @@ class InventoryReportService
             });
     }
 
-    /** Established cost methodology: last purchase cost, else default cost. */
+    /** Established cost methodology: weighted average, then declared opening, then legacy. */
     private function productCost(Product $p): float
     {
-        return (float) ($p->last_purchase_cost ?? $p->default_purchase_cost ?? 0);
+        return (float) (
+            $p->average_cost
+            ?? $p->opening_cost
+            ?? $p->last_purchase_cost
+            ?? $p->default_purchase_cost
+            ?? 0
+        );
     }
 
     /** Default period: last 30 days when no explicit range is given. */

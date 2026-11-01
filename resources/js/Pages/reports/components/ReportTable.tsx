@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -31,6 +31,19 @@ export function ReportTable<T>({
   const [page, setPage] = useState(0)
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [printing, setPrinting] = useState(false)
+
+  // Printing must include every row, not just the visible page.
+  useEffect(() => {
+    const before = () => setPrinting(true)
+    const after = () => setPrinting(false)
+    window.addEventListener('beforeprint', before)
+    window.addEventListener('afterprint', after)
+    return () => {
+      window.removeEventListener('beforeprint', before)
+      window.removeEventListener('afterprint', after)
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     if (!search || !onSearch) return data
@@ -51,6 +64,7 @@ export function ReportTable<T>({
 
   const pages = Math.max(1, Math.ceil(sorted.length / pageSize))
   const paged = sorted.slice(page * pageSize, (page + 1) * pageSize)
+  const rows = printing ? sorted : paged
 
   const toggleSort = (key: string) => {
     if (sortKey === key) {
@@ -64,7 +78,7 @@ export function ReportTable<T>({
   return (
     <div className="space-y-3">
       {searchable && (
-        <div className="relative max-w-xs">
+        <div className="relative max-w-xs" data-print="hide">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
           <input
             type="text" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }}
@@ -100,14 +114,14 @@ export function ReportTable<T>({
               </tr>
             </thead>
             <tbody>
-              {paged.length === 0 ? (
+              {rows.length === 0 ? (
                 <tr>
                   <td colSpan={columns.length} className="text-center py-12 text-sm text-muted-foreground">
                     {emptyMessage || 'No data found.'}
                   </td>
                 </tr>
               ) : (
-                paged.map((row) => (
+                rows.map((row) => (
                   <tr key={keyExtractor(row)} className="border-b border-border hover:bg-muted/30 transition-colors">
                     {columns.map((col) => (
                       <td key={col.key} className={cn('px-4 py-3 text-sm', col.className)}>
@@ -123,7 +137,7 @@ export function ReportTable<T>({
       </Card>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div className="flex items-center justify-between text-xs text-muted-foreground" data-print="hide">
         <span>{sorted.length} record{sorted.length !== 1 ? 's' : ''}</span>
         <div className="flex items-center gap-2">
           <button

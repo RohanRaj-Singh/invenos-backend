@@ -27,7 +27,52 @@ class ReportController extends Controller
         private readonly DayBookReportService $dayBookReport,
         private readonly FinancialReportService $financialReport,
         private readonly ExportService $export,
+        private readonly \App\Domains\Ledger\PartyLedgerService $partyLedger,
     ) {}
+
+    /**
+     * Party Statement — derived from the shared party ledger.
+     */
+    public function party(): Response
+    {
+        $filters = ReportFilters::fromRequest(request());
+        $type = request('party_type') === 'supplier' ? 'supplier' : 'customer';
+
+        $report = null;
+        if ($filters->contactId && ($party = \App\Models\Contact::find($filters->contactId))) {
+            $report = $this->partyLedger->statement(
+                $party,
+                $filters->dateFrom,
+                $filters->dateTo,
+                $type,
+            );
+        }
+
+        return Inertia::render('reports/PartyReport', [
+            'report' => $report,
+            'filters' => array_merge($filters->toArray(), ['party_type' => $type]),
+        ]);
+    }
+
+    public function cashFlow(): Response
+    {
+        $filters = ReportFilters::fromRequest(request());
+
+        return Inertia::render('reports/CashFlowReport', [
+            'report' => $this->financialReport->cashFlow($filters),
+            'filters' => $filters->toArray(),
+        ]);
+    }
+
+    public function balanceSheet(): Response
+    {
+        $filters = ReportFilters::fromRequest(request());
+
+        return Inertia::render('reports/BalanceSheetReport', [
+            'report' => $this->financialReport->balanceSheet($filters),
+            'filters' => $filters->toArray(),
+        ]);
+    }
 
     public function index(): Response
     {

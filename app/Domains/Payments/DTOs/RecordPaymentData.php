@@ -11,6 +11,7 @@ class RecordPaymentData
         public readonly string $method,
         public readonly ?string $reference,
         public readonly string $createdBy,
+        public readonly ?string $date = null,
     ) {}
 
     public static function fromRequest(array $data): self
@@ -22,6 +23,7 @@ class RecordPaymentData
             method: $data['method'] ?? 'cash',
             reference: $data['reference'] ?? null,
             createdBy: $data['created_by'],
+            date: $data['date'] ?? null,
         );
     }
 }

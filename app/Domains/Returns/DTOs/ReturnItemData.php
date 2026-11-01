@@ -20,6 +20,7 @@ class ReturnItemData
         public readonly float $total,
         public readonly ?int $reasonId,
         public readonly ?string $notes,
+        public readonly bool $restock = true,
     ) {}
 
     public static function fromArray(array $data): self
@@ -37,6 +38,7 @@ class ReturnItemData
             total: (float) ($data['total'] ?? 0),
             reasonId: isset($data['reason_id']) ? (int) $data['reason_id'] : null,
             notes: $data['notes'] ?? null,
+            restock: filter_var($data['restock'] ?? true, FILTER_VALIDATE_BOOLEAN),
         );
     }
 
@@ -55,6 +57,7 @@ class ReturnItemData
             'total' => $this->total,
             'reason_id' => $this->reasonId,
             'notes' => $this->notes,
+            'restock' => $this->restock,
         ];
     }
 }

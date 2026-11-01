@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { router, usePage } from '@inertiajs/react'
 import { Receipt, Search, ArrowRight, RotateCcw, Plus, ChevronRight, FileText } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
@@ -27,6 +27,19 @@ export default function SalesListPage() {
   const [search, setSearch] = useState('')
   const [filterSource, setFilterSource] = useState<string>('all')
   const [dateFilter, setDateFilter] = useState<DateFilterValue>({ dateFrom: '', dateTo: '', quick: '' })
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customRows, setCustomRows] = useState('')
+
+  // Search the whole dataset, not just the loaded page.
+  const serverSearch = (props as any).filters?.search ?? ''
+  useEffect(() => {
+    if (search === serverSearch) return
+    const t = setTimeout(() => {
+      router.get('/sales', { ...((props as any).filters || {}), search, page: 1 }, { preserveState: true, replace: true, preserveScroll: true })
+    }, 350)
+    return () => clearTimeout(t)
+  }, [search])
   const canCreate = usePermission('sales', 'create')
   const canProcessReturn = usePermission('sales', 'processReturn')
 
@@ -40,16 +53,10 @@ export default function SalesListPage() {
   const filtered = useMemo(() => {
     return list.filter((s) => {
       if (s.invoice_number?.startsWith('RET-')) return false
-      if (search) {
-        const q = search.toLowerCase()
-        const nameMatch = (s.customer_name || '').toLowerCase().includes(q)
-        const invMatch = s.invoice_number.toLowerCase().includes(q)
-        if (!nameMatch && !invMatch) return false
-      }
       if (filterSource !== 'all' && s.source !== filterSource) return false
       return true
     })
-  }, [list, search, filterSource])
+  }, [list, filterSource])
 
   const totalAmount = useMemo(() => filtered.reduce((s: number, x: any) => s + (x.grand_total || 0), 0), [filtered])
 
@@ -86,12 +93,12 @@ export default function SalesListPage() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <input
-            type="text" placeholder="Search by invoice or customer..."
+            type="text" placeholder="Search invoice, customer, amount, date..."
             value={search} onChange={(e) => setSearch(e.target.value)}
             className="w-full h-10 pl-9 pr-3 rounded-xl border border-input bg-background text-sm outline-none focus:border-ring transition-colors"
           />
         </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 no-scrollbar">
+        <div className={cn('items-center gap-1.5 overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0 no-scrollbar', filtersOpen ? 'flex' : 'hidden')}>
           {(['all', 'pos', 'clinic', 'manual'] as const).map((src) => (
             <button
               key={src}
@@ -109,16 +116,82 @@ export default function SalesListPage() {
         </div>
       </div>
 
-      {/* Date filter row */}
-      <div className="border-t border-border pt-3 flex items-center gap-2">
-        <DateFilter value={dateFilter} onChange={handleDateChange} />
-        {(dateFilter.dateFrom || dateFilter.dateTo) && (
-          <button onClick={() => handleDateChange({ dateFrom: '', dateTo: '', quick: '' })}
-            className="text-xs text-muted-foreground hover:text-foreground underline transition-colors">
-            Clear
-          </button>
-        )}
+      {/* Screen options */}
+      <div className="flex items-center justify-between gap-3">
+        <button
+          onClick={() => setFiltersOpen((v) => !v)}
+          className={cn(
+            'text-xs font-medium px-3 py-2 rounded-lg border transition-colors',
+            filtersOpen
+              ? 'bg-foreground text-background border-foreground'
+              : 'bg-background text-muted-foreground border-border hover:text-foreground',
+          )}
+        >
+          {filtersOpen ? 'Hide filters' : 'Filters'}
+        </button>
+
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          Rows
+          <select
+            value={
+              [25, 50, 100, 200].includes(Number((props as any).filters?.per_page ?? 25))
+                ? String((props as any).filters?.per_page ?? 25)
+                : 'custom'
+            }
+            onChange={(e) => {
+              if (e.target.value === 'custom') {
+                setCustomOpen(true)
+                return
+              }
+              setCustomOpen(false)
+              router.get('/sales', { ...((props as any).filters || {}), per_page: e.target.value, page: 1 }, { preserveState: true, preserveScroll: true })
+            }}
+            className="h-9 px-2 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring"
+            aria-label="Rows per page"
+          >
+            {[25, 50, 100, 200].map((n) => <option key={n} value={n}>{n} / page</option>)}
+            <option value="custom">Custom…</option>
+          </select>
+        </label>
       </div>
+
+      {customOpen && (
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={customRows}
+            onChange={(e) => setCustomRows(e.target.value)}
+            placeholder="e.g. 500"
+            className="h-9 w-28 px-2.5 rounded-lg border border-input bg-background text-xs outline-none focus:border-ring"
+            aria-label="Custom rows per page"
+          />
+          <button
+            onClick={() => {
+              const n = Math.min(1000, Math.max(1, parseInt(customRows, 10) || 0))
+              if (!n) return
+              router.get('/sales', { ...((props as any).filters || {}), per_page: n, page: 1 }, { preserveState: true, preserveScroll: true })
+            }}
+            className="h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium"
+          >
+            Apply
+          </button>
+          <span className="text-[11px] text-muted-foreground">1–1000 rows</span>
+        </div>
+      )}
+
+      {filtersOpen && (
+        <div className="border-t border-border pt-3 flex items-center gap-2">
+          <DateFilter value={dateFilter} onChange={handleDateChange} />
+          {(dateFilter.dateFrom || dateFilter.dateTo) && (
+            <button onClick={() => handleDateChange({ dateFrom: '', dateTo: '', quick: '' })}
+              className="text-xs text-muted-foreground hover:text-foreground underline transition-colors">
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── Desktop Table ── */}
       <div className="hidden md:block rounded-xl border border-border overflow-hidden">
@@ -265,6 +338,28 @@ export default function SalesListPage() {
           })
         )}
       </div>
+
+      {meta && meta.last_page > 1 && (
+        <div className="flex items-center justify-between pt-1 text-xs text-muted-foreground">
+          <span>Page {meta.current_page} of {meta.last_page} · {meta.total} transactions</span>
+          <div className="flex items-center gap-2">
+            <button
+              disabled={meta.current_page <= 1}
+              onClick={() => router.get('/sales', { ...((props as any).filters || {}), page: meta.current_page - 1 }, { preserveState: true, preserveScroll: true })}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors"
+            >
+              <ChevronRight className="size-3.5 rotate-180" /> Prev
+            </button>
+            <button
+              disabled={meta.current_page >= meta.last_page}
+              onClick={() => router.get('/sales', { ...((props as any).filters || {}), page: meta.current_page + 1 }, { preserveState: true, preserveScroll: true })}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border disabled:opacity-40 hover:bg-muted transition-colors"
+            >
+              Next <ChevronRight className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

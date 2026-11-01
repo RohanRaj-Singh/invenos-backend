@@ -11,11 +11,12 @@ interface DocumentActionsProps {
   total: number
   outstanding: number
   currency?: string
+  pdfUrl?: string
 }
 
 /** Toolbar above the invoice paper — Print button + Share dropdown */
 export default function DocumentActions({
-  title, invoiceNumber, partyName, total, outstanding, currency = 'Rs.',
+  title, invoiceNumber, partyName, total, outstanding, currency = 'Rs.', pdfUrl,
 }: DocumentActionsProps) {
   const [shareOpen, setShareOpen] = useState(false)
 
@@ -48,28 +49,29 @@ export default function DocumentActions({
       },
     },
     {
-      label: 'Download PDF (coming soon)',
+      label: 'Download PDF',
       icon: FileDown,
-      disabled: true,
+      disabled: !pdfUrl,
       onClick: () => {
-        toast.info('PDF export coming soon')
+        if (pdfUrl) window.open(pdfUrl, '_blank')
+        else toast.info('PDF export is not available for this document')
         setShareOpen(false)
       },
     },
   ]
 
   return (
-    <div className="no-print bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+    <div className="no-print sticky top-0 z-30 bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
       <Button variant="ghost" size="sm" onClick={() => window.history.back()} className="gap-1.5 text-gray-600 hover:text-gray-900">
         <X className="size-4" />
-        <span className="hidden sm:inline">Close</span>
+        <span>Close</span>
       </Button>
 
       <div className="flex items-center gap-2">
         {/* Print */}
         <Button onClick={() => window.print()} className="gap-2 shadow-sm">
           <Printer className="size-4" />
-          <span className="hidden sm:inline">Print</span>
+          <span>Print</span>
         </Button>
 
         {/* Share dropdown */}
@@ -80,7 +82,7 @@ export default function DocumentActions({
             className="gap-2"
           >
             <Share2 className="size-4" />
-            <span className="hidden sm:inline">Share</span>
+            <span>Share</span>
             <ChevronDown className="size-3.5 text-gray-400" />
           </Button>
 

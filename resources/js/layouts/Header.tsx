@@ -21,7 +21,7 @@ export default function Header({ onToggleSidebar, dark, onToggleDark }: HeaderPr
   const [actionsOpen, setActionsOpen] = useState(false)
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between h-14 px-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <header data-print="hide" className="sticky top-0 z-30 flex items-center justify-between h-14 px-4 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       {/* Left */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" className="md:hidden" onClick={onToggleSidebar} aria-label="Toggle menu">

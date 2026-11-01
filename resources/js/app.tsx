@@ -11,6 +11,18 @@ import { AuthProvider } from '@/features/auth/AuthContext';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Invenos';
 
+// Print documents render without the app shell; the shell's overflow clips
+// everything below the first viewport when the browser paginates.
+const PRINT_PAGES = new Set([
+    'sales/SalePrint',
+    'purchases/PurchasePrint',
+    'payments/PaymentPrint',
+    'reports/StockPrint',
+    'returns/SaleReturnPrint',
+    'returns/PurchaseReturnPrint',
+    'expenses/ExpensePrint',
+]);
+
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) =>
@@ -18,7 +30,11 @@ createInertiaApp({
             `./Pages/${name}.tsx`,
             import.meta.glob('./Pages/**/*.tsx'),
         ).then((page: any) => {
-            // Use AppLayout as the default layout for all pages
+            if (PRINT_PAGES.has(name)) {
+                page.default.layout = (page: any) => page;
+                return page;
+            }
+            // Use AppLayout as the default layout for all other pages
             page.default.layout = page.default.layout || ((page: any) => <AppLayout>{page}</AppLayout>);
             return page;
         }),
@@ -33,5 +49,5 @@ createInertiaApp({
             </AuthProvider>
         );
     },
-    progress: { color: '#4B5563' },
+    progress: { color: 'var(--primary)', showSpinner: false, delay: 0 },
 });
