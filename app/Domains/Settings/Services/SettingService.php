@@ -99,6 +99,17 @@ class SettingService
                 'allow_backdated_purchases' => false,
                 'require_supplier' => true,
             ],
+            'backup' => [
+                'enabled' => false,
+                'frequency' => 'daily',
+                'time' => '02:00',
+                'timezone' => 'Asia/Karachi',
+                'retain_daily' => 7,
+                'retain_weekly' => 4,
+                'retain_monthly' => 12,
+                'retain_safety' => 3,
+                'encrypt' => true,
+            ],
             'receipt' => [
                 // Header toggles
                 'show_business_logo' => true,

@@ -2,155 +2,260 @@
 
 namespace App\Http\Controllers;
 
+use App\Domains\Backup\Services\BackupService;
+use App\Domains\Backup\Services\BackupVerifier;
+use App\Domains\Backup\Services\RestoreService;
+use App\Domains\Settings\Services\SettingService;
+use App\Models\AuditLog;
+use App\Models\Backup;
+use App\Models\RestoreRun;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class BackupController extends Controller
 {
-    protected string $backupDir = 'backups';
+    public function __construct(
+        private readonly BackupService $backupService,
+        private readonly BackupVerifier $verifier,
+        private readonly RestoreService $restoreService,
+    ) {
+    }
 
-    public function index(): Response
+    public function index(Request $request): Response
     {
-        $backupPath = storage_path('app/backups');
-        $files = [];
+        $this->ensureAdmin($request);
 
-        if (is_dir($backupPath)) {
-            $all = glob($backupPath . '/*.sql');
-            rsort($all);
-            foreach (array_slice($all, 0, 20) as $file) {
-                $files[] = [
-                    'name' => basename($file),
-                    'size' => $this->formatBytes(filesize($file)),
-                    'date' => date('Y-m-d H:i', filemtime($file)),
-                ];
-            }
-        }
+        $backups = Backup::query()->latest()->paginate(15)->withQueryString();
+
+        $settings = app(SettingService::class)->get();
 
         return Inertia::render('settings/BackupRestore', [
-            'backups' => $files,
+            'backups' => $backups,
+            'stats' => [
+                'total' => Backup::query()->count(),
+                'verified' => Backup::query()->where('status', Backup::STATUS_VERIFIED)->count(),
+                'total_bytes' => (int) Backup::query()->sum('size_bytes'),
+                'last_verified_at' => Backup::query()->whereNotNull('verified_at')->max('verified_at'),
+                'pending_jobs' => $this->pendingJobs(),
+            ],
+            'backupSettings' => $settings['backup'] ?? [],
+            'restorableBackups' => Backup::query()
+                ->completed()
+                ->latest('created_at')
+                ->limit(50)
+                ->get(['id', 'filename', 'created_at', 'size_bytes', 'kind', 'status']),
+            'businessTimezone' => $settings['business']['timezone'] ?? 'Asia/Karachi',
+            'restorePreview' => session('restore_preview'),
+            'restoreRunId' => session('restore_run_id'),
+            'verifyResult' => session('verify_result'),
         ]);
     }
 
-    public function create(): RedirectResponse
+    public function store(Request $request): RedirectResponse
     {
+        $this->ensureAdmin($request);
+
+        $data = $request->validate([
+            'password' => ['nullable', 'string', 'min:8', 'max:255'],
+        ]);
+
         try {
-            $filename = 'backup-' . now()->format('Y-m-d-Hi') . '.sql';
-            $path = storage_path('app/' . $this->backupDir . '/' . $filename);
-
-            if (!is_dir(dirname($path))) {
-                mkdir(dirname($path), 0755, true);
-            }
-
-            $db = config('database.connections.mysql');
-            $cmd = sprintf(
-                'mysqldump --host=%s --port=%s --user=%s --password=%s %s --no-tablespaces --routines --skip-lock-tables 2>/dev/null',
-                escapeshellarg($db['host']),
-                escapeshellarg($db['port']),
-                escapeshellarg($db['username']),
-                escapeshellarg($db['password']),
-                escapeshellarg($db['database'])
+            $backup = $this->backupService->create(
+                $data['password'] ?? null,
+                $request->user()->id
             );
 
-            $output = null;
-            $resultCode = null;
-            exec($cmd, $output, $resultCode);
+            $this->audit($request->user(), 'backup.created', $backup, $backup->filename);
 
-            if ($resultCode === 0 && !empty($output)) {
-                file_put_contents($path, implode("\n", $output));
-            } else {
-                // Fallback: PHP-based export
-                $sql = $this->phpExport();
-                file_put_contents($path, $sql);
-            }
+            return back()->with('success', 'Backup created: '.$backup->filename);
+        } catch (Throwable $e) {
+            $this->audit($request->user(), 'backup.failed', null, $e->getMessage());
 
-            return back()->with('success', "Backup created: {$filename}");
-        } catch (\Exception $e) {
-            return back()->with('error', 'Backup failed: ' . $e->getMessage());
+            return back()->withErrors(['backup' => $e->getMessage()]);
         }
     }
 
-    public function download(string $filename)
+    public function download(Request $request, Backup $backup)
     {
-        $path = storage_path('app/backups/' . basename($filename));
-        if (!file_exists($path)) {
-            return back()->with('error', 'Backup file not found.');
-        }
-        return response()->download($path);
+        $this->ensureAdmin($request);
+
+        abort_unless($backup->isDownloadable(), 404);
+
+        $path = Storage::disk($backup->disk)->path($backup->path);
+        abort_unless(is_file($path), 404);
+
+        $this->audit($request->user(), 'backup.downloaded', $backup, $backup->filename);
+
+        return response()->download($path, $backup->filename, [
+            'Content-Type' => 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
-    public function restore(Request $request): RedirectResponse
+    public function verify(Request $request, Backup $backup): RedirectResponse
     {
-        $request->validate(['file' => 'required|file|mimes:sql,txt|max:51200']);
+        $this->ensureAdmin($request);
 
-        try {
-            $sql = file_get_contents($request->file('file')->getRealPath());
-            // Disable foreign key checks for safe restore
-            DB::statement('SET FOREIGN_KEY_CHECKS=0;');
-            foreach (explode(";\n", $sql) as $statement) {
-                $statement = trim($statement);
-                if (!empty($statement)) {
-                    try {
-                        DB::unprepared($statement);
-                    } catch (\Exception $e) {
-                        // Skip individual statement errors during restore
-                        continue;
-                    }
-                }
-            }
-            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
+        $data = $request->validate([
+            'password' => ['nullable', 'string', 'max:255'],
+        ]);
 
-            return back()->with('success', 'Database restored from uploaded file.');
-        } catch (\Exception $e) {
-            DB::statement('SET FOREIGN_KEY_CHECKS=1;');
-            return back()->with('error', 'Restore failed: ' . $e->getMessage());
+        $result = $this->verifier->verify($backup, $data['password'] ?? null);
+
+        if ($result['content_verified']) {
+            $backup->forceFill([
+                'status' => Backup::STATUS_VERIFIED,
+                'verified_at' => now(),
+                'failure_reason' => null,
+            ])->save();
+
+            $this->audit($request->user(), 'backup.verified', $backup);
+
+            return back()->with('success', 'Backup verified successfully.');
         }
+
+        if (! $result['checksum_ok']) {
+            $backup->forceFill([
+                'status' => Backup::STATUS_FAILED,
+                'failure_reason' => implode(' ', $result['errors']),
+            ])->save();
+        }
+
+        return back()->withErrors([
+            'backup' => $result['errors'][0] ?? 'Backup could not be verified.',
+        ]);
     }
 
-    public function destroy(string $filename): RedirectResponse
+    public function destroy(Request $request, Backup $backup): RedirectResponse
     {
-        $path = storage_path('app/backups/' . basename($filename));
-        if (file_exists($path)) {
-            unlink($path);
+        $this->ensureAdmin($request);
+
+        if (in_array($backup->status, [Backup::STATUS_RUNNING, Backup::STATUS_PENDING], true)) {
+            return back()->withErrors(['backup' => 'A running backup cannot be deleted.']);
         }
+
+        $newest = Backup::query()->completed()->latest('completed_at')->first();
+
+        if (! $request->boolean('force') && $newest && $newest->id === $backup->id) {
+            return back()->withErrors(['backup' => 'This is the newest completed backup. Confirm "force" to remove it.']);
+        }
+
+        Storage::disk($backup->disk)->delete($backup->path);
+        $backup->forceFill(['status' => Backup::STATUS_EXPIRED])->save();
+        $backup->delete();
+
+        $this->audit($request->user(), 'backup.deleted', $backup, 'filename: '.$backup->filename);
+
         return back()->with('success', 'Backup deleted.');
     }
 
-    private function phpExport(): string
+    public function inspectUpload(Request $request): RedirectResponse
     {
-        $tables = DB::select('SHOW TABLES');
-        $dbName = config('database.connections.mysql.database');
-        $key = 'Tables_in_' . $dbName;
-        $sql = "SET FOREIGN_KEY_CHECKS=0;\n\n";
+        $this->ensureAdmin($request);
 
-        foreach ($tables as $table) {
-            $name = $table->$key;
-            $create = DB::select("SHOW CREATE TABLE `{$name}`")[0]->{'Create Table'};
-            $sql .= "DROP TABLE IF EXISTS `{$name}`;\n";
-            $sql .= "{$create};\n\n";
+        $request->validate([
+            'file' => ['required', 'file', 'max:1048576'],
+            'password' => ['nullable', 'string', 'max:255'],
+        ]);
 
-            $rows = DB::table($name)->get();
-            foreach ($rows as $row) {
-                $vals = array_map(fn ($v) => is_null($v) ? 'NULL' : "'" . addslashes((string) $v) . "'", (array) $row);
-                $sql .= "INSERT INTO `{$name}` VALUES (" . implode(',', $vals) . ");\n";
-            }
-            $sql .= "\n";
+        $file = $request->file('file');
+        $extension = strtolower($file->getClientOriginalExtension());
+
+        if (! in_array($extension, ['invbak', 'zip'], true)) {
+            return back()->withErrors(['file' => 'Upload an .invbak backup file.']);
         }
 
-        $sql .= "SET FOREIGN_KEY_CHECKS=1;\n";
-        return $sql;
+        try {
+            $run = $this->restoreService->inspectUpload($file, $request->input('password'), $request->user()->id);
+
+            return redirect()
+                ->route('settings.backup')
+                ->with('restore_preview', $run->preview)
+                ->with('restore_run_id', $run->id);
+        } catch (Throwable $e) {
+            return back()->withErrors(['file' => $e->getMessage()]);
+        }
     }
 
-    private function formatBytes(int $bytes): string
+    public function inspectBackup(Request $request, Backup $backup): RedirectResponse
     {
-        $units = ['B', 'KB', 'MB', 'GB'];
-        $i = 0;
-        while ($bytes >= 1024 && $i < count($units) - 1) {
-            $bytes /= 1024;
-            $i++;
+        $this->ensureAdmin($request);
+
+        try {
+            $run = $this->restoreService->inspectBackup(
+                $backup,
+                $request->input('password'),
+                $request->user()->id
+            );
+
+            return redirect()
+                ->route('settings.backup')
+                ->with('restore_preview', $run->preview)
+                ->with('restore_run_id', $run->id);
+        } catch (Throwable $e) {
+            return back()->withErrors(['restore' => $e->getMessage()]);
         }
-        return round($bytes, 1) . ' ' . $units[$i];
+    }
+
+    public function restore(Request $request, RestoreRun $restoreRun): RedirectResponse
+    {
+        $this->ensureAdmin($request);
+
+        $data = $request->validate([
+            'confirmation' => ['required', 'string', 'max:255'],
+            'password' => ['nullable', 'string', 'max:255'],
+            'force' => ['sometimes', 'boolean'],
+        ]);
+
+        try {
+            $this->restoreService->restore(
+                $restoreRun,
+                $data['confirmation'],
+                $data['password'] ?? null,
+                (bool) ($data['force'] ?? false)
+            );
+
+            $this->audit($request->user(), 'backup.restored', $restoreRun->backup, $restoreRun->artifact_name);
+
+            return redirect()->route('settings.backup')->with('success', 'Restore completed successfully.');
+        } catch (Throwable $e) {
+            return back()->withErrors(['restore' => $e->getMessage()]);
+        }
+    }
+
+    private function ensureAdmin(Request $request): void
+    {
+        abort_unless($request->user()?->isAdmin(), 403);
+    }
+
+    private function pendingJobs(): int
+    {
+        try {
+            return (int) DB::table('jobs')->count();
+        } catch (Throwable) {
+            return 0;
+        }
+    }
+
+    private function audit(?User $user, string $event, ?Backup $backup, ?string $reason = null): void
+    {
+        try {
+            AuditLog::create([
+                'user_id' => $user?->id,
+                'event' => $event,
+                'auditable_type' => $backup ? Backup::class : RestoreRun::class,
+                'auditable_id' => $backup?->id ?? 0,
+                'description' => $event,
+                'reason' => $reason,
+                'ip_address' => request()->ip(),
+            ]);
+        } catch (Throwable) {
+        }
     }
 }

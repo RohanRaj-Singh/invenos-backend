@@ -195,8 +195,13 @@ Route::prefix('settings')->group(function () {
     Route::get('/permissions', [SettingsController::class, 'permissions'])->name('settings.permissions');
     Route::post('/permissions/user/{id}', [SettingsController::class, 'updateUserPermissions'])->name('settings.permissions.update');
     Route::get('/backup', [\App\Http\Controllers\BackupController::class, 'index'])->name('settings.backup');
-    Route::post('/backup', [\App\Http\Controllers\BackupController::class, 'create'])->name('settings.backup.create');
-    Route::delete('/backup/{filename}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('settings.backup.delete');
+    Route::post('/backup', [\App\Http\Controllers\BackupController::class, 'store'])->name('settings.backup.create');
+    Route::post('/backup/inspect', [\App\Http\Controllers\BackupController::class, 'inspectUpload'])->name('settings.backup.inspect');
+    Route::post('/backup/restore/{restoreRun}', [\App\Http\Controllers\BackupController::class, 'restore'])->name('settings.backup.restore');
+    Route::get('/backup/{backup}/download', [\App\Http\Controllers\BackupController::class, 'download'])->name('settings.backup.download');
+    Route::post('/backup/{backup}/verify', [\App\Http\Controllers\BackupController::class, 'verify'])->name('settings.backup.verify');
+    Route::post('/backup/{backup}/inspect', [\App\Http\Controllers\BackupController::class, 'inspectBackup'])->name('settings.backup.inspect.local');
+    Route::delete('/backup/{backup}', [\App\Http\Controllers\BackupController::class, 'destroy'])->name('settings.backup.delete');
     Route::get('/about', fn () => Inertia::render('settings/AboutSystem'))->name('settings.about');
 });
 

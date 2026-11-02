@@ -46,12 +46,14 @@ return new class extends Migration
             $table->dropIndex('ft_contact_date_index');
             $table->dropForeign(['linked_purchase_id']);
             $table->dropForeign(['linked_return_id']);
+            $table->dropForeign(['contact_id']);
             $table->dropColumn([
                 'source_type', 'source_id', 'event_key',
                 'linked_purchase_id', 'linked_return_id',
                 'reversal_of_id', 'reversed_at',
             ]);
             $table->unsignedBigInteger('contact_id')->nullable(false)->change();
+            $table->foreign('contact_id')->references('id')->on('contacts');
         });
     }
 };

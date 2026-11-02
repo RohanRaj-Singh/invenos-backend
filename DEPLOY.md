@@ -91,5 +91,8 @@ public/
 
 - **Root directory**: Point your domain to `public/`
 - **PHP version**: Set to 8.2+ in cPanel's "MultiPHP Manager"
-- **Cron**: No queue workers needed for current features
+- **Cron**: Add `* * * * * cd ~/public_html && php artisan schedule:run >> /dev/null 2>&1` so scheduled backups run. A queue worker is not required for backups; `backup:run` executes directly.
+- **Backups**: keep `storage/app/backups` outside the web root and `chmod 770`. The exporter uses `mysqldump` when available and falls back to a chunked PHP exporter when `exec()` is disabled.
+- **Failed restore**: a failed restore leaves maintenance mode on deliberately. Run `php artisan backup:recover` (or `php artisan up`) to restore service. Details are appended to `storage/logs/backup.log`.
+- **MySQL 8 GTID**: dumps are created with `--set-gtid-purged=OFF`, and older dumps containing `GTID_PURGED` are sanitised during import, so restores are portable between servers.
 - **Git**: Use cPanel's "Git Version Control" for auto-deploy, or SSH manually
