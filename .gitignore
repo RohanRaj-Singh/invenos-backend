@@ -29,8 +29,25 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 
-# Backup/prototype reference files
-*_Prototype.tsx
+# Prototype reference files
+*Prototype.tsx
+
+# Local tool state (SQL dumps, local settings, learned preferences)
+/.commandcode/
+
+# Database dumps and local backup output
+*.sql
+*.sqlite
+*.sqlite3
+*.dump
+/storage/app/backups/
+/storage/invenos-backup-*.sql
+
+# Large reference media (keep markdown docs, not binaries)
+/docs/*.pdf
+/docs/*.png
+/docs/*.jpg
+/docs/*.jpeg
 
 # OS junk
 .DS_Store
