@@ -2,16 +2,23 @@
 
 namespace App\Http\Controllers;
 
+use App\Domains\Ledger\PartyLedgerService;
 use App\Domains\Reports\DTOs\ReportFilters;
 use App\Domains\Reports\Services\ContactReportService;
 use App\Domains\Reports\Services\DashboardReportService;
-use App\Domains\Reports\Services\ExportService;
-use App\Domains\Reports\Services\InventoryReportService;
 use App\Domains\Reports\Services\DayBookReportService;
+use App\Domains\Reports\Services\ExportService;
 use App\Domains\Reports\Services\FinancialReportService;
+use App\Domains\Reports\Services\InventoryReportService;
 use App\Domains\Reports\Services\ProductReportService;
 use App\Domains\Reports\Services\PurchaseReportService;
+use App\Domains\Reports\Services\ReportService;
 use App\Domains\Reports\Services\SalesReportService;
+use App\Domains\Settings\Services\SettingService;
+use App\Models\Category;
+use App\Models\Contact;
+use App\Models\Product;
+use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,7 +34,7 @@ class ReportController extends Controller
         private readonly DayBookReportService $dayBookReport,
         private readonly FinancialReportService $financialReport,
         private readonly ExportService $export,
-        private readonly \App\Domains\Ledger\PartyLedgerService $partyLedger,
+        private readonly PartyLedgerService $partyLedger,
     ) {}
 
     /**
@@ -39,7 +46,7 @@ class ReportController extends Controller
         $type = request('party_type') === 'supplier' ? 'supplier' : 'customer';
 
         $report = null;
-        if ($filters->contactId && ($party = \App\Models\Contact::find($filters->contactId))) {
+        if ($filters->contactId && ($party = Contact::find($filters->contactId))) {
             $report = $this->partyLedger->statement(
                 $party,
                 $filters->dateFrom,
@@ -87,6 +94,7 @@ class ReportController extends Controller
         $report = $this->salesReport->register($filters);
         $topProducts = $this->salesReport->topProducts($filters);
         $byCustomer = $this->salesReport->byCustomer($filters);
+
         return Inertia::render('reports/SalesReport', [
             'report' => $report,
             'top_products' => $topProducts['products'] ?? [],
@@ -98,6 +106,7 @@ class ReportController extends Controller
     public function salesByCustomer(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/CustomerSales', [
             'report' => $this->salesReport->byCustomer($filters),
             'filters' => $filters->toArray(),
@@ -107,6 +116,7 @@ class ReportController extends Controller
     public function topProducts(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/TopProducts', [
             'report' => $this->salesReport->topProducts($filters),
             'filters' => $filters->toArray(),
@@ -118,6 +128,7 @@ class ReportController extends Controller
     public function purchaseRegister(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/PurchaseReport', [
             'report' => $this->purchaseReport->register($filters),
             'filters' => $filters->toArray(),
@@ -129,9 +140,10 @@ class ReportController extends Controller
     public function stockSummary(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/StockReport', [
             'report' => $this->inventoryReport->stockReport($filters),
-            'categories' => \App\Models\Category::orderBy('name')->get(),
+            'categories' => Category::orderBy('name')->get(),
             'filters' => $filters->toArray(),
         ]);
     }
@@ -143,9 +155,10 @@ class ReportController extends Controller
     public function printStock(): Response
     {
         $filters = ReportFilters::fromRequest(request()->merge(['per_page' => 0]));
+
         return Inertia::render('reports/StockPrint', [
             'report' => $this->inventoryReport->stockReport($filters),
-            'settings' => app(\App\Domains\Settings\Services\SettingService::class)->get(),
+            'settings' => app(SettingService::class)->get(),
             'filters' => $filters->toArray(),
         ]);
     }
@@ -153,6 +166,7 @@ class ReportController extends Controller
     public function stockLedger(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/StockLedger', [
             'report' => $this->inventoryReport->stockLedger($filters),
             'filters' => $filters->toArray(),
@@ -162,6 +176,7 @@ class ReportController extends Controller
     public function lowStock(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/LowStockReport', [
             'report' => $this->inventoryReport->lowStock($filters),
             'filters' => $filters->toArray(),
@@ -173,6 +188,7 @@ class ReportController extends Controller
     public function customerLedger(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/CustomerLedger', [
             'report' => $this->contactReport->customerLedger($filters),
             'filters' => $filters->toArray(),
@@ -182,6 +198,7 @@ class ReportController extends Controller
     public function supplierLedger(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/SupplierLedger', [
             'report' => $this->contactReport->supplierLedger($filters),
             'filters' => $filters->toArray(),
@@ -209,6 +226,7 @@ class ReportController extends Controller
     private function resolveDatePreset(string $preset): array
     {
         $now = now();
+
         return match ($preset) {
             'yesterday' => ['from' => $now->copy()->subDay()->format('Y-m-d'), 'to' => $now->copy()->subDay()->format('Y-m-d')],
             'thisWeek' => ['from' => $now->copy()->startOfWeek()->format('Y-m-d'), 'to' => $now->format('Y-m-d')],
@@ -225,6 +243,7 @@ class ReportController extends Controller
     public function financialOverview(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/FinancialOverview', [
             'report' => $this->financialReport->overview($filters),
             'filters' => $filters->toArray(),
@@ -236,15 +255,25 @@ class ReportController extends Controller
     public function productTimeline(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
+        // The ledger is per product, but the page is reachable from navigation
+        // without a product_id. Rendering its "select a product" state is better
+        // than failing the request; the picker below loads the real product.
         return Inertia::render('reports/ProductLedger', [
-            'report' => $this->productReport->timeline($filters),
+            'report' => $filters->productId
+                ? $this->productReport->timeline($filters)
+                : ['product' => null, 'movements' => [], 'summary' => []],
             'filters' => $filters->toArray(),
+            'products' => Product::query()
+                ->orderBy('name')
+                ->get(['id', 'name', 'sku'])
+                ->toArray(),
         ]);
     }
 
     // ─── Dashboard ────────────────────────────────────────────
 
-    public function dashboard(): \Illuminate\Http\JsonResponse
+    public function dashboard(): JsonResponse
     {
         return response()->json($this->dashboardReport->today());
     }
@@ -271,7 +300,7 @@ class ReportController extends Controller
     public function financial(): Response
     {
         return Inertia::render('reports/FinancialReport', [
-            'report' => (new \App\Domains\Reports\Services\ReportService(
+            'report' => (new ReportService(
                 $this->salesReport,
                 $this->purchaseReport,
                 $this->inventoryReport,
@@ -283,6 +312,7 @@ class ReportController extends Controller
     public function profit(): Response
     {
         $filters = ReportFilters::fromRequest(request());
+
         return Inertia::render('reports/PnLReport', [
             'report' => $this->salesReport->profit($filters),
             'filters' => $filters->toArray(),
@@ -295,7 +325,7 @@ class ReportController extends Controller
     {
         $filters = ReportFilters::fromRequest(request());
         $data = $this->salesReport->register($filters);
-        $rows = array_map(fn($s) => [
+        $rows = array_map(fn ($s) => [
             'Invoice' => $s['invoice_number'] ?? '',
             'Date' => $s['date'] ?? '',
             'Customer' => $s['customer']['name'] ?? $s['customer_name'] ?? '',
@@ -303,6 +333,7 @@ class ReportController extends Controller
             'Paid' => $s['amount_paid'] ?? 0,
             'Status' => $s['payment_status'] ?? '',
         ], $data['sales'] ?? []);
+
         return $this->export->csv($rows, ['Invoice', 'Date', 'Customer', 'Total', 'Paid', 'Status'], 'sales-register');
     }
 
@@ -310,7 +341,7 @@ class ReportController extends Controller
     {
         $filters = ReportFilters::fromRequest(request());
         $data = $this->purchaseReport->register($filters);
-        $rows = array_map(fn($b) => [
+        $rows = array_map(fn ($b) => [
             'Reference' => $b['invoice_ref'] ?? '',
             'Date' => $b['date'] ?? '',
             'Supplier' => $b['supplier']['name'] ?? $b['supplier_name'] ?? '',
@@ -318,6 +349,7 @@ class ReportController extends Controller
             'Paid' => $b['amount_paid'] ?? 0,
             'Status' => $b['payment_status'] ?? '',
         ], $data['bills'] ?? []);
+
         return $this->export->csv($rows, ['Reference', 'Date', 'Supplier', 'Total', 'Paid', 'Status'], 'purchase-register');
     }
 
@@ -340,7 +372,7 @@ class ReportController extends Controller
         $data = $this->inventoryReport->stockReport($filters);
 
         $headers = ['Product', 'SKU', 'Category', 'Unit', 'Stock', 'Threshold', 'Sold', 'Purchased', 'Returns', 'Value', 'Status'];
-        $rows = array_map(fn($p) => [
+        $rows = array_map(fn ($p) => [
             'Product' => $p['name'] ?? '',
             'SKU' => $p['sku'] ?? '',
             'Category' => $p['category'] ?? '',
@@ -363,7 +395,7 @@ class ReportController extends Controller
     {
         $filters = ReportFilters::fromRequest(request());
         $data = $this->inventoryReport->stockLedger($filters);
-        $rows = array_map(fn($m) => [
+        $rows = array_map(fn ($m) => [
             'Date' => $m['date'] ?? '',
             'Product' => $m['product']['name'] ?? '',
             'Type' => $m['type'] ?? '',
@@ -371,6 +403,7 @@ class ReportController extends Controller
             'Balance' => $m['running_balance'] ?? 0,
             'Reference' => $m['reference'] ?? '',
         ], $data['movements'] ?? []);
+
         return $this->export->csv($rows, ['Date', 'Product', 'Type', 'Quantity', 'Balance', 'Reference'], 'stock-ledger');
     }
 
@@ -378,13 +411,14 @@ class ReportController extends Controller
     {
         $filters = ReportFilters::fromRequest(request());
         $data = $this->inventoryReport->lowStock($filters);
-        $rows = array_map(fn($p) => [
+        $rows = array_map(fn ($p) => [
             'Product' => $p['name'] ?? '',
             'SKU' => $p['sku'] ?? '',
             'Stock' => $p['stock_quantity'] ?? 0,
             'Threshold' => $p['low_stock_threshold'] ?? 0,
             'Status' => $p['status'] ?? '',
         ], $data['products'] ?? []);
+
         return $this->export->csv($rows, ['Product', 'SKU', 'Stock', 'Threshold', 'Status'], 'low-stock');
     }
 
@@ -392,7 +426,7 @@ class ReportController extends Controller
     {
         $filters = ReportFilters::fromRequest(request());
         $data = $this->dayBookReport->generate($filters);
-        $rows = array_map(fn($e) => [
+        $rows = array_map(fn ($e) => [
             'Date' => $e['date'] ?? '',
             'Time' => $e['time'] ?? '',
             'Type' => $e['type'] ?? '',
@@ -401,6 +435,7 @@ class ReportController extends Controller
             'Party' => $e['party'] ?? '',
             'Amount' => $e['amount'] ?? 0,
         ], $data['events'] ?? []);
+
         return $this->export->csv($rows, ['Date', 'Time', 'Type', 'Reference', 'Description', 'Party', 'Amount'], 'day-book');
     }
 }

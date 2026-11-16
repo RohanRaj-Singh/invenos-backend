@@ -5,6 +5,7 @@ namespace Tests\Feature\Contacts;
 use App\Domains\Contacts\DTOs\CreateContactData;
 use App\Domains\Contacts\Services\ContactService;
 use App\Models\Contact;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -18,6 +19,11 @@ class ContactsTest extends TestCase
     {
         parent::setUp();
         $this->service = app(ContactService::class);
+    }
+
+    private function admin(): User
+    {
+        return User::factory()->create(['role' => 'admin']);
     }
 
     public function test_can_create_contact(): void
@@ -89,6 +95,7 @@ class ContactsTest extends TestCase
     {
         $contact = Contact::create(['type' => 'person', 'roles' => ['customer'], 'name' => 'To Delete', 'phone' => '0300-1111111']);
 
+        $this->actingAs($this->admin());
         $this->service->delete($contact->id);
 
         $this->assertSoftDeleted($contact);
@@ -106,7 +113,7 @@ class ContactsTest extends TestCase
 
     public function test_http_create_endpoint(): void
     {
-        $response = $this->post('/contacts', [
+        $response = $this->actingAs($this->admin())->post('/contacts', [
             'type' => 'person',
             'roles' => ['customer'],
             'name' => 'HTTP Customer',
@@ -121,7 +128,7 @@ class ContactsTest extends TestCase
     {
         Contact::create(['type' => 'person', 'roles' => ['customer'], 'name' => 'List Test', 'phone' => '0300-1111111']);
 
-        $response = $this->get('/contacts?role=customer');
+        $response = $this->actingAs($this->admin())->get('/contacts?role=customer');
 
         $response->assertInertia(fn ($page) => $page->component('contacts/ContactsList'));
     }

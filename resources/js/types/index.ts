@@ -229,6 +229,9 @@ export interface Product {
   description: string
   image?: string
   productType?: ProductType      // defaults to 'simple' when unset
+  /** Server-derived active composition flags. */
+  hasConsumptionComposition?: boolean
+  hasAssemblyComposition?: boolean
 
   // ── NEW FIELDS ──
   /** The atomic unit for inventory tracking. Always required. References units domain. */
@@ -264,7 +267,7 @@ export interface PackagingSuggestion {
 }
 
 // ── Inventory Transactions ──
-export type TransactionType = 'purchase' | 'sale' | 'return' | 'adjustment' | 'damage' | 'consumption' | 'transfer'
+export type TransactionType = 'purchase' | 'sale' | 'return' | 'adjustment' | 'damage' | 'consumption' | 'production' | 'transfer'
 
 export interface InventoryTransaction {
   id: string; productId: string; type: TransactionType
@@ -279,7 +282,7 @@ export interface InventoryTransaction {
 export interface InventorySummary {
   currentStock: number; totalPurchased: number; totalSold: number
   totalReturned: number; totalAdjusted: number; totalDamaged: number
-  totalConsumed: number; totalTransferred: number
+  totalConsumed: number; totalProduced?: number; totalTransferred: number
   netMovement: number; transactionCount: number
 }
 
@@ -298,6 +301,28 @@ export interface ProductCategory {
   id: string; name: string; productCount: number; industry: string
 }
 
+// ── Formula runtime customization ──
+export interface FormulaOverride {
+  composition_item_id: number
+  /** Quantity per formula unit, in `unit_id`. */
+  quantity: number
+  unit_id: string
+}
+
+export interface FormulaDetailLine {
+  composition_item_id: number
+  name: string
+  unit: string
+  default_quantity: number
+  /** Quantity per formula unit selected by the cashier. */
+  actual_quantity: number
+  optional: boolean
+  /** Ingredient stock on hand when the formula was added, in `unit`. */
+  available_stock?: number | null
+  /** Whether ingredient stock may go negative for this ingredient. */
+  allows_negative_stock?: boolean
+}
+
 // ── Cart / POS ──
 export interface CartItem {
   id: string; productId: string; name: string
@@ -308,6 +333,14 @@ export interface CartItem {
   baseQuantity: number         // total base units = packagingQuantity * baseUnitQuantity
   unitPrice: number            // price per packaging option
   total: number; category: string
+  /** Server-derived active consumption composition. Components are never cart lines. */
+  hasConsumptionComposition?: boolean
+  formulaCompositionId?: number
+  formulaVersion?: number
+  /** Runtime ingredient quantities per formula unit. */
+  formulaOverrides?: FormulaOverride[]
+  formulaOptionalItemIds?: number[]
+  formulaDetails?: FormulaDetailLine[]
 }
 
 export interface POSCustomer {

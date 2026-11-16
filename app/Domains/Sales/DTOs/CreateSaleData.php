@@ -2,6 +2,9 @@
 
 namespace App\Domains\Sales\DTOs;
 
+use App\Models\Contact;
+use Illuminate\Support\Facades\Auth;
+
 class CreateSaleData
 {
     public function __construct(
@@ -17,18 +20,25 @@ class CreateSaleData
         public readonly string $source,
         public readonly ?string $notes,
         public readonly string $createdBy,
+        public readonly ?string $idempotencyKey = null,
+        public readonly ?int $userId = null,
     ) {}
 
     public static function fromRequest(array $data): self
     {
-        $customerId = !empty($data['customer_id']) ? (int) $data['customer_id'] : 0;
+        $customerId = ! empty($data['customer_id']) ? (int) $data['customer_id'] : 0;
         $customerName = $data['customer_name'] ?? '';
-        if (!$customerName && $customerId > 0) {
-            $customerName = \App\Models\Contact::find($customerId)?->name ?? 'Walk-in Customer';
+        if (! $customerName && $customerId > 0) {
+            $customerName = Contact::find($customerId)?->name ?? 'Walk-in Customer';
         }
-        if (!$customerName) {
+        if (! $customerName) {
             $customerName = 'Walk-in Customer';
         }
+
+        $idempotencyKey = $data['idempotency_key'] ?? null;
+        $idempotencyKey = is_string($idempotencyKey) && trim($idempotencyKey) !== ''
+            ? trim($idempotencyKey)
+            : null;
 
         return new self(
             invoiceNumber: $data['invoice_number'],
@@ -43,6 +53,10 @@ class CreateSaleData
             source: $data['source'] ?? 'pos',
             notes: $data['notes'] ?? null,
             createdBy: $data['created_by'] ?? 'System',
+            idempotencyKey: $idempotencyKey,
+            userId: isset($data['user_id'])
+                ? (int) $data['user_id']
+                : (Auth::id() ?: null),
         );
     }
 }

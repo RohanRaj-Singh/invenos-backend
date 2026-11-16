@@ -2,18 +2,23 @@
 
 namespace App\Domains\Reports\Services;
 
+use App\Domains\Ledger\CashLedgerService;
 use App\Domains\Reports\DTOs\ReportFilters;
 use App\Models\Expense;
 use App\Models\FinancialTransaction;
+use App\Models\InventoryTransaction;
+use App\Models\Product;
 use App\Models\PurchaseBill;
 use App\Models\ReturnModel;
 use App\Models\Sale;
-use App\Models\InventoryTransaction;
-use App\Models\Product;
-use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class DayBookReportService
 {
+    public function __construct(
+        private readonly CogsCalculator $cogs,
+    ) {}
+
     /**
      * Generate the complete day book — the daily executive report.
      *
@@ -179,11 +184,11 @@ class DayBookReportService
             ->get()
             ->each(function ($adj) use (&$events, &$operationalEvents) {
                 $e = [
-                    'date' => $adj->date instanceof \Carbon\Carbon ? $adj->date->format('Y-m-d') : $adj->date,
+                    'date' => $adj->date instanceof Carbon ? $adj->date->format('Y-m-d') : $adj->date,
                     'time' => $adj->created_at?->format('H:i') ?? '—',
                     'type' => 'Stock Adjustment',
                     'ref' => $adj->reference ?? '—',
-                    'description' => ($adj->product?->name ?? 'Product') . ' (' . ($adj->quantity > 0 ? '+' . (int)$adj->quantity : (int)$adj->quantity) . ')',
+                    'description' => ($adj->product?->name ?? 'Product').' ('.($adj->quantity > 0 ? '+'.(int) $adj->quantity : (int) $adj->quantity).')',
                     'party' => '—',
                     'amount' => 0,
                     'user' => $adj->user ?? '—',
@@ -196,7 +201,7 @@ class DayBookReportService
             });
 
         // Sort chronologically
-        usort($events, fn($a, $b) => $a['date'] <=> $b['date'] ?: ($a['time'] <=> $b['time']));
+        usort($events, fn ($a, $b) => $a['date'] <=> $b['date'] ?: ($a['time'] <=> $b['time']));
 
         // ─── Section 2: Today's Performance (KPIs) ─────────────
         $totalSales = collect($financialEvents)->where('category', 'Sale')->sum('amount');
@@ -207,13 +212,8 @@ class DayBookReportService
         $totalPaymentsReceived = collect($financialEvents)->where('category', 'Payment')->where('type', 'Payment Received')->sum('amount');
         $totalPaymentsMade = collect($financialEvents)->where('category', 'Payment')->where('type', 'Payment Made')->sum('amount');
 
-        // COGS from sale_items.cost_price
-        $cogs = (float) DB::table('sale_items')
-            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
-            ->whereNull('sales.deleted_at')
-            ->whereBetween('sales.date', [$from, $to])
-            ->select(DB::raw('SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)) as cogs'))
-            ->value('cogs') ?? 0;
+        $costSummary = $this->cogs->summary($from, $to);
+        $cogs = round($costSummary['cogs'] - $this->cogs->returned($from, $to), 6);
 
         $netSales = $totalSales - $totalSaleReturns;
         $netPurchases = $totalPurchases - $totalPurchaseReturns;
@@ -222,7 +222,7 @@ class DayBookReportService
 
         // ─── Section 3: Cash Summary ────────────────────────────
         // Actual cash only — invoice memos and opening positions are excluded.
-        $ledger = app(\App\Domains\Ledger\CashLedgerService::class);
+        $ledger = app(CashLedgerService::class);
         $cash = $ledger->summary($from, $to);
 
         $cashInBefore = $ledger->inBefore($from);
@@ -235,16 +235,16 @@ class DayBookReportService
         // Opening balance explanation
         $openingExplanation = '';
         if ($openingCash >= 0) {
-            $openingExplanation = "Opening Balance is based on Rs " . number_format($cashInBefore) . " in total cash received minus Rs " . number_format($cashOutBefore) . " in total cash paid before " . $from . ".";
+            $openingExplanation = 'Opening Balance is based on Rs '.number_format($cashInBefore).' in total cash received minus Rs '.number_format($cashOutBefore).' in total cash paid before '.$from.'.';
         } else {
-            $openingExplanation = "Historical purchases and expenses exceeded cash inflows by Rs " . number_format(abs($openingCash)) . " before " . $from . ".";
+            $openingExplanation = 'Historical purchases and expenses exceeded cash inflows by Rs '.number_format(abs($openingCash)).' before '.$from.'.';
         }
 
         // ─── Section 4: Today's Highlights ──────────────────────
         $largestSale = collect($financialEvents)->where('category', 'Sale')->sortByDesc('amount')->first();
         $largestPurchase = collect($financialEvents)->where('category', 'Purchase')->sortByDesc('amount')->first();
         $highestExpense = collect($financialEvents)->where('category', 'Expense')->sortByDesc('amount')->first();
-        $returnCount = collect($financialEvents)->filter(fn($e) => str_contains($e['type'], 'Return'))->count();
+        $returnCount = collect($financialEvents)->filter(fn ($e) => str_contains($e['type'], 'Return'))->count();
         $paymentCount = collect($financialEvents)->where('category', 'Payment')->count();
         $adjustmentCount = count($operationalEvents);
 
@@ -280,7 +280,7 @@ class DayBookReportService
         ];
 
         // ─── Section 5: Business Health ─────────────────────────
-        $yesterday = date('Y-m-d', strtotime($from . ' -1 day'));
+        $yesterday = date('Y-m-d', strtotime($from.' -1 day'));
         $yesterdaySales = Sale::whereDate('date', $yesterday)->sum('grand_total');
         $salesTrend = $yesterdaySales > 0 ? round((($totalSales - $yesterdaySales) / $yesterdaySales) * 100, 1) : 0;
 
@@ -290,27 +290,40 @@ class DayBookReportService
         $insights = [];
         $warnings = [];
 
+        if (! $costSummary['cost_complete']) {
+            $warnings[] = [
+                'type' => 'warning',
+                'icon' => 'cost',
+                'message' => sprintf(
+                    'cost is incomplete for %d composition sale item(s) / %d component line(s) and %d stock line(s). COGS and profit use known costs only.',
+                    $costSummary['uncosted_composition_items'],
+                    $costSummary['uncosted_composition_lines'],
+                    $costSummary['uncosted_simple_lines'],
+                ),
+            ];
+        }
+
         // Sales vs yesterday
         if ($totalSales > 0 && $yesterdaySales > 0) {
             if ($salesTrend > 0) {
                 $insights[] = ['type' => 'positive', 'icon' => 'up', 'message' => "Sales increased by {$salesTrend}% compared to yesterday."];
             } else {
-                $warnings[] = ['type' => 'warning', 'icon' => 'down', 'message' => "Sales decreased by " . abs($salesTrend) . "% compared to yesterday."];
+                $warnings[] = ['type' => 'warning', 'icon' => 'down', 'message' => 'Sales decreased by '.abs($salesTrend).'% compared to yesterday.'];
             }
         } elseif ($totalSales > 0 && $yesterdaySales == 0) {
-            $insights[] = ['type' => 'positive', 'icon' => 'up', 'message' => "Sales recorded today — no sales yesterday."];
+            $insights[] = ['type' => 'positive', 'icon' => 'up', 'message' => 'Sales recorded today — no sales yesterday.'];
         }
 
         // Profit
         if ($netProfit >= 0) {
-            $insights[] = ['type' => 'positive', 'icon' => 'check', 'message' => "Profit is positive at " . number_format($netProfit) . "."];
+            $insights[] = ['type' => 'positive', 'icon' => 'check', 'message' => 'Profit is positive at '.number_format($netProfit).'.'];
         } else {
-            $warnings[] = ['type' => 'danger', 'icon' => 'alert', 'message' => "Loss of " . number_format(abs($netProfit)) . " — expenses exceeded gross profit."];
+            $warnings[] = ['type' => 'danger', 'icon' => 'alert', 'message' => 'Loss of '.number_format(abs($netProfit)).' — expenses exceeded gross profit.'];
         }
 
         // Expenses vs gross profit
         if ($totalExpenses > 0 && $grossProfit > 0 && $totalExpenses > $grossProfit) {
-            $warnings[] = ['type' => 'danger', 'icon' => 'alert', 'message' => "Expenses (Rs " . number_format($totalExpenses) . ") exceeded gross profit (Rs " . number_format($grossProfit) . ")."];
+            $warnings[] = ['type' => 'danger', 'icon' => 'alert', 'message' => 'Expenses (Rs '.number_format($totalExpenses).') exceeded gross profit (Rs '.number_format($grossProfit).').'];
         }
 
         // Returns
@@ -321,7 +334,7 @@ class DayBookReportService
         // Negative stock
         if ($negativeStockProducts->isNotEmpty()) {
             $names = $negativeStockProducts->take(3)->pluck('name')->join(', ');
-            $warnings[] = ['type' => 'danger', 'icon' => 'stock', 'message' => "{$negativeStockProducts->count()} product(s) have negative stock: {$names}" . ($negativeStockProducts->count() > 3 ? '...' : '') . "."];
+            $warnings[] = ['type' => 'danger', 'icon' => 'stock', 'message' => "{$negativeStockProducts->count()} product(s) have negative stock: {$names}".($negativeStockProducts->count() > 3 ? '...' : '').'.'];
         }
 
         // Low stock
@@ -332,7 +345,7 @@ class DayBookReportService
         // Outstanding receivables
         $outstandingReceivables = Sale::where('outstanding_balance', '>', 0)->sum('outstanding_balance');
         if ($outstandingReceivables > 10000) {
-            $warnings[] = ['type' => 'warning', 'icon' => 'money', 'message' => "Outstanding customer payments total Rs " . number_format($outstandingReceivables) . "."];
+            $warnings[] = ['type' => 'warning', 'icon' => 'money', 'message' => 'Outstanding customer payments total Rs '.number_format($outstandingReceivables).'.'];
         }
 
         $health = [
@@ -357,12 +370,11 @@ class DayBookReportService
             'generated_at' => now()->format('Y-m-d H:i:s'),
         ];
 
-
         // --- Trend Comparison ------------------------------
         // Compute the same KPIs for the previous period of equal length
         $periodDays = max(1, (int) ceil((strtotime($to) - strtotime($from)) / 86400) + 1);
-        $prevTo = date('Y-m-d', strtotime($from . ' -1 day'));
-        $prevFrom = date('Y-m-d', strtotime($prevTo . ' -' . ($periodDays - 1) . ' days'));
+        $prevTo = date('Y-m-d', strtotime($from.' -1 day'));
+        $prevFrom = date('Y-m-d', strtotime($prevTo.' -'.($periodDays - 1).' days'));
 
         $prevSales = Sale::whereBetween('date', [$prevFrom, $prevTo])->sum('grand_total');
         $prevSaleReturns = ReturnModel::where('type', 'SALE')->where('status', 'completed')
@@ -394,6 +406,13 @@ class DayBookReportService
                 'cogs' => round($cogs),
                 'gross_profit' => round($grossProfit),
                 'net_profit' => round($netProfit),
+                'cost_complete' => $costSummary['cost_complete'],
+                'simple_cost_complete' => $costSummary['simple_cost_complete'],
+                'uncosted_simple_items' => $costSummary['uncosted_simple_items'],
+                'uncosted_simple_lines' => $costSummary['uncosted_simple_lines'],
+                'uncosted_composition_items' => $costSummary['uncosted_composition_items'],
+                'uncosted_composition_lines' => $costSummary['uncosted_composition_lines'],
+                'composition_cost_basis' => $costSummary['composition_cost_basis'],
                 'transaction_count' => count($events),
             ],
             'cash_summary' => [

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { usePage } from '@inertiajs/react'
-import { BarChart3, TrendingUp, TrendingDown, DollarSign, Users, Building2, Package } from 'lucide-react'
+import { AlertTriangle, BarChart3, TrendingUp, TrendingDown, DollarSign, Users, Building2, Package } from 'lucide-react'
 import { ReportLayout } from './components/ReportLayout'
 import { ReportToolbar } from './components/ReportToolbar'
 import { SummaryCards, type SummaryCardDef } from './components/SummaryCards'
@@ -22,6 +22,13 @@ interface FinancialSummary {
   gross_profit: number
   net_profit: number
   gross_margin_pct: number
+  cost_complete?: boolean
+  simple_cost_complete?: boolean
+  uncosted_simple_items?: number
+  uncosted_simple_lines?: number
+  uncosted_composition_items?: number
+  uncosted_composition_lines?: number
+  composition_cost_basis?: string
 }
 
 export default function FinancialOverviewPage() {
@@ -64,6 +71,19 @@ export default function FinancialOverviewPage() {
       />
 
       <SummaryCards cards={cards} />
+
+      {s.cost_complete === false && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+          <p className="text-xs leading-relaxed">
+            Cost is incomplete for {s.uncosted_composition_items ?? 0} composition sale item(s)
+            ({s.uncosted_composition_lines ?? 0} component line(s)) and{' '}
+            {s.uncosted_simple_items ?? 0} stock sale item(s)
+            ({s.uncosted_simple_lines ?? 0} uncosted stock line(s)). Gross and net profit use known
+            costs only and may be overstated.
+          </p>
+        </div>
+      )}
 
       {/* Profit Section */}
       <div className="rounded-xl border border-border overflow-hidden">

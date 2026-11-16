@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { router, usePage } from '@inertiajs/react'
-import { ArrowLeft, Search, RotateCcw, CheckCircle2, Package, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { ArrowLeft, Search, RotateCcw, CheckCircle2, Package, X, ChevronDown, ChevronUp, FlaskConical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -37,6 +37,8 @@ interface ReturnItemState {
   productId: string
   productName: string
   unitName: string
+  sellingUnitId: string | null
+  baseUnitQuantity: number
   originalQty: number
   originalPrice: number
   originalTotal: number
@@ -46,6 +48,29 @@ interface ReturnItemState {
   reason: ReturnReason
   condition: ItemCondition
   restock: boolean
+  /** Composition consumption context — absent for simple products. */
+  composition: RecoveryContext | null
+  /** Explicit recovered quantities keyed by composition_run_item_id. */
+  recovered: Record<number, number>
+}
+
+interface RecoveryComponent {
+  composition_run_item_id: number
+  component_name: string | null
+  unit: string
+  per_unit_quantity: number
+  restored_quantity: number
+  wastage_quantity: number
+  eligible_for_remaining: number
+}
+
+interface RecoveryContext {
+  sale_item_id: number
+  product_name: string
+  sold_quantity: number
+  previously_returned: number
+  remaining_quantity: number
+  components: RecoveryComponent[]
 }
 
 interface ReturnPageProps {
@@ -53,11 +78,18 @@ interface ReturnPageProps {
   backPath: string
   title: string
   isPurchase: boolean
+  recoveryContext?: Record<string, RecoveryContext>
+  canCreateReturn?: boolean
 }
 
-export default function ReturnPage({ strategy, backPath, title, isPurchase }: ReturnPageProps) {
+export default function ReturnPage({ strategy, backPath, title, isPurchase, recoveryContext, canCreateReturn }: ReturnPageProps) {
   const { props: inertiaProps } = usePage()
   const { record } = useTransactionRecorder()
+
+  // Composition returns go through the canonical server workflow. The key is
+  // stable for one submission so a double click cannot create a second return.
+  const idempotencyKey = useRef<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
   const [searchRef, setSearchRef] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -128,23 +160,32 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
     // Find the full transaction from the raw props data
     const raw = rawTransactions.find((r: any) => r.id === tx.id)
     if (!raw) return
+    const contexts = recoveryContext || {}
     setOriginalTx(raw)
-    setReturnItems((raw.items || []).map((item: any) => ({
+    setReturnItems((raw.items || []).map((item: any) => {
+      const recovery = contexts[String(item.id)] || null
+
+      return {
       originalLineId: item.id, productId: String(item.product_id || ''),
       productName: item.product_name || item.name || 'Unknown',
       unitName: isPurchase ? (item.purchase_pack_name || 'Unit') : (item.packaging_name || 'Unit'),
+      sellingUnitId: item.selling_unit_id ? String(item.selling_unit_id) : null,
+      baseUnitQuantity: Number(item.base_unit_quantity ?? 1) || 1,
       originalQty: isPurchase ? (item.purchase_quantity || 0) : (item.packaging_quantity || 0),
       originalPrice: isPurchase ? (item.unit_cost || 0) : (item.unit_price || 0),
       originalTotal: isPurchase ? (item.total_cost || 0) : (item.total || 0),
       maxReturnable: isPurchase ? (item.purchase_quantity || 0) : (item.packaging_quantity || 0),
       returnQty: 0, selected: false,
       reason: 'other' as ReturnReason, condition: 'resellable' as ItemCondition,
-      restock: !isPurchase,
-    })))
+      restock: !isPurchase && !recovery,
+      composition: recovery,
+      recovered: {},
+      }
+    }))
     setLoaded(true)
     setSearchRef('')
     setHighlighted(0)
-  }, [rawTransactions, isPurchase])
+  }, [rawTransactions, isPurchase, recoveryContext])
 
   // Auto-select when navigated from detail page with ref param
   useEffect(() => {
@@ -176,15 +217,93 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
 
   const setCondition = (idx: number, condition: ItemCondition) => {
     setReturnItems((prev) => prev.map((item, i) =>
-      i === idx ? { ...item, condition, restock: condition === 'resellable' } : item
+      i === idx ? { ...item, condition, restock: condition === 'resellable' && !item.composition } : item
     ))
   }
 
   const selectedItems = returnItems.filter((r) => r.selected && r.returnQty > 0)
   const refundTotal = selectedItems.reduce((sum, r) => sum + r.originalPrice * r.returnQty, 0)
 
+  const compositionItems = selectedItems.filter((r) => r.composition)
+  const hasCompositionLines = compositionItems.length > 0
+
+  const maxRecoverable = (item: ReturnItemState, component: RecoveryComponent) =>
+    Math.max(0, Number((component.per_unit_quantity * item.returnQty - component.restored_quantity).toFixed(6)))
+
+  const setRecovered = (lineId: string, runItemId: number, qty: number) => {
+    setReturnItems((prev) => prev.map((item) => {
+      if (item.originalLineId !== lineId) return item
+      const component = item.composition?.components.find((c) => c.composition_run_item_id === runItemId)
+      const max = component ? maxRecoverable(item, component) : 0
+      return { ...item, recovered: { ...item.recovered, [runItemId]: Math.max(0, Math.min(qty, max)) } }
+    }))
+  }
+
+  /**
+   * Composition returns are recorded through the canonical server workflow so
+   * material recovery is validated, costed and idempotent server-side.
+   */
+  const submitCanonicalReturn = useCallback(() => {
+    if (!originalTx) return
+    const sale = originalTx as any
+
+    if (!idempotencyKey.current) {
+      idempotencyKey.current = `ret-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    }
+
+    setSubmitting(true)
+    setShowConfirm(false)
+
+    router.post('/returns/sale', {
+      idempotency_key: idempotencyKey.current,
+      reference_id: sale.id,
+      reference_type: 'sale',
+      return_date: new Date().toISOString().split('T')[0],
+      contact_id: sale.customer_id ?? sale.customer?.id ?? null,
+      refund_method: refundMethod,
+      subtotal: refundTotal,
+      discount: 0,
+      grand_total: refundTotal,
+      refund_amount: refundTotal,
+      items: selectedItems.map((r) => ({
+        reference_item_id: Number(r.originalLineId),
+        reference_item_type: 'sale_item',
+        product_id: Number(r.productId),
+        product_name: r.productName,
+        selling_unit_id: r.sellingUnitId ? Number(r.sellingUnitId) : null,
+        packaging_name: r.unitName,
+        quantity: r.returnQty,
+        base_quantity: Number((r.returnQty * r.baseUnitQuantity).toFixed(6)),
+        unit_price: r.originalPrice,
+        total: r.originalPrice * r.returnQty,
+        restock: r.restock,
+        material_recoveries: r.composition
+          ? r.composition.components
+              .filter((c) => (r.recovered[c.composition_run_item_id] ?? 0) > 0)
+              .map((c) => ({
+                composition_run_item_id: c.composition_run_item_id,
+                quantity: r.recovered[c.composition_run_item_id],
+              }))
+          : [],
+      })),
+    }, {
+      preserveScroll: true,
+      onError: (errors) => {
+        toast.error((Object.values(errors)[0] as string) || 'Could not record the return.')
+      },
+      onFinish: () => setSubmitting(false),
+    })
+  }, [originalTx, selectedItems, refundTotal, refundMethod])
+
   const handleProcessReturn = useCallback(() => {
     if (selectedItems.length === 0) return
+
+    // Composition invoices always go through the server; simple invoices keep
+    // the existing client-side recording path unchanged.
+    if (hasCompositionLines) {
+      submitCanonicalReturn()
+      return
+    }
 
     const result = record({
       strategy,
@@ -219,7 +338,7 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
     setReceiptRef(result.receipt.invoiceNumber)
     setShowReceipt(true)
     toast.success(`${title} recorded: ${result.receipt.invoiceNumber}`)
-  }, [selectedItems, strategy, originalTx, refundTotal, refundMethod, record, title])
+  }, [selectedItems, strategy, originalTx, refundTotal, refundMethod, record, title, hasCompositionLines, submitCanonicalReturn])
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -358,7 +477,14 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
                             <input type="checkbox" checked={item.selected} onChange={() => toggleItem(idx)} className="size-4 rounded border-input" />
                           </Td>
                           <Td className="min-w-0">
-                            <div className="text-sm font-medium text-foreground truncate max-w-[200px]">{item.productName}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium text-foreground truncate max-w-[200px]">{item.productName}</span>
+                              {item.composition && (
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 gap-0.5 border-amber-300 text-amber-700 dark:text-amber-400 shrink-0">
+                                  <FlaskConical className="size-2.5" /> Formula
+                                </Badge>
+                              )}
+                            </div>
                             <div className="text-[10px] text-muted-foreground">{item.unitName} · {formatCurrency(item.originalPrice)} each</div>
                           </Td>
                           <Td className="w-20 text-center"><span className="text-sm tabular-nums text-muted-foreground">{item.originalQty}</span></Td>
@@ -400,7 +526,14 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
                           <input type="checkbox" checked={item.selected} onChange={() => toggleItem(idx)} className="size-4 rounded border-input shrink-0" />
                           <div className="flex-1 min-w-0" onClick={() => item.selected && toggleMobileOpen(idx)}>
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-sm font-medium text-foreground truncate">{item.productName}</span>
+                              <span className="text-sm font-medium text-foreground truncate">
+                                {item.productName}
+                                {item.composition && (
+                                  <span className="ml-1.5 inline-flex items-center gap-0.5 align-middle text-[9px] font-medium text-amber-700 dark:text-amber-400">
+                                    <FlaskConical className="size-2.5" /> Formula
+                                  </span>
+                                )}
+                              </span>
                               <span className="text-xs font-semibold tabular-nums shrink-0">
                                 {item.selected && item.returnQty > 0 ? formatCurrency(item.originalPrice * item.returnQty) : '—'}
                               </span>
@@ -462,6 +595,66 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
               </>
             )}
 
+            {/* Recovered materials — explicit, never automatic */}
+            {compositionItems.length > 0 && (
+              <div className="rounded-xl border border-amber-300/70 bg-amber-50/60 dark:bg-amber-500/5 p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <FlaskConical className="size-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">Recovered materials (optional)</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      A refund does not restore ingredients, and formula sale lines do not restock the
+                      parent product. Enter only the components that were physically recovered and are
+                      reusable. Wastage is never restored, and nothing is sent to inventory until the
+                      return is completed.
+                    </p>
+                  </div>
+                </div>
+
+                {compositionItems.map((item) => (
+                  <div key={item.originalLineId} className="rounded-lg bg-background/70 border border-border p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-foreground truncate">{item.productName}</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">
+                        {item.returnQty} returned · {item.composition!.sold_quantity} sold
+                        {item.composition!.previously_returned > 0 && ` · ${item.composition!.previously_returned} already returned`}
+                      </span>
+                    </div>
+
+                    {item.composition!.components.map((component) => {
+                      const max = maxRecoverable(item, component)
+                      const value = item.recovered[component.composition_run_item_id] ?? 0
+
+                      return (
+                        <div key={component.composition_run_item_id} className="flex items-center gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs text-foreground truncate">{component.component_name || 'Component'}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              up to {max} {component.unit}
+                              {component.wastage_quantity > 0 && ` · ${component.wastage_quantity} ${component.unit} wastage not restorable`}
+                              {component.restored_quantity > 0 && ` · ${component.restored_quantity} ${component.unit} already restored`}
+                            </div>
+                          </div>
+                          <input
+                            type="number"
+                            min={0}
+                            max={max}
+                            step="0.000001"
+                            disabled={max <= 0}
+                            value={value || ''}
+                            placeholder="0"
+                            onChange={(e) => setRecovered(item.originalLineId, component.composition_run_item_id, parseFloat(e.target.value) || 0)}
+                            className="w-24 h-8 px-2 rounded-lg border border-input bg-background text-sm text-right tabular-nums outline-none focus:border-ring disabled:opacity-40"
+                          />
+                          <span className="text-[10px] text-muted-foreground w-8 shrink-0">{component.unit}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Refund summary */}
             {selectedItems.length > 0 && (
               <div className="flex justify-end">
@@ -505,10 +698,10 @@ export default function ReturnPage({ strategy, backPath, title, isPurchase }: Re
                 <Button
                   size="default"
                   className="gap-1.5 shadow-sm"
-                  disabled={selectedItems.length === 0}
+                  disabled={selectedItems.length === 0 || submitting || (hasCompositionLines && canCreateReturn === false)}
                   onClick={() => setShowConfirm(true)}
                 >
-                  <CheckCircle2 className="size-3.5" /> Process Return
+                  <CheckCircle2 className="size-3.5" /> {submitting ? 'Recording…' : 'Process Return'}
                 </Button>
               </div>
             </div>

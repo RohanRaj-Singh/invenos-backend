@@ -104,7 +104,7 @@ class ProductLifecycleTest extends TestCase
 
         $this->sell($product);
 
-        $this->assertSame(['sales' => 1, 'purchases' => 0], $policy->deleteBlocker($product));
+        $this->assertSame(['sales' => 1, 'purchases' => 0, 'compositions' => 0], $policy->deleteBlocker($product));
     }
 
     public function test_product_page_tells_the_ui_whether_deletion_is_possible(): void

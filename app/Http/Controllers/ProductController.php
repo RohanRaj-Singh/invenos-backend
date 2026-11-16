@@ -8,9 +8,14 @@ use App\Domains\Products\Services\ProductService;
 use App\Domains\Products\Services\ProductUnitService;
 use App\Http\Requests\Products\CreateProductRequest;
 use App\Http\Requests\Products\UpdateProductRequest;
+use App\Models\InventoryTransaction;
+use App\Models\Product;
+use App\Models\PurchaseBillItem;
+use App\Models\SaleItem;
+use App\Policies\Lifecycle\ProductPolicy;
 use App\Services\Lifecycle\RecordLifecycleService;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -53,24 +58,27 @@ class ProductController extends Controller
             'categories' => $this->productService->allCategories(),
             'products' => $this->productService->search(perPage: 999)->items(),
             'generated_sku' => $this->productService->generateSku(''),
+            'setup_formula' => request()->boolean('formula'),
         ]);
     }
 
     public function store(CreateProductRequest $request): RedirectResponse
     {
+        $this->authorize('products.create');
+
         $data = CreateProductData::fromRequest($request->validated());
 
         // Ensure unique barcode — append suffix if collision
-        if ($data->barcode && \App\Models\Product::withTrashed()->where('barcode', $data->barcode)->exists()) {
+        if ($data->barcode && Product::withTrashed()->where('barcode', $data->barcode)->exists()) {
             $base = $data->barcode;
             $n = 1;
-            while (\App\Models\Product::withTrashed()->where('barcode', $base . '-' . $n)->exists()) {
+            while (Product::withTrashed()->where('barcode', $base.'-'.$n)->exists()) {
                 $n++;
             }
-            $data = new \App\Domains\Products\DTOs\CreateProductData(
+            $data = new CreateProductData(
                 name: $data->name,
                 sku: $data->sku,
-                barcode: $base . '-' . $n,
+                barcode: $base.'-'.$n,
                 categoryId: $data->categoryId,
                 description: $data->description,
                 baseUnitId: $data->baseUnitId,
@@ -83,19 +91,20 @@ class ProductController extends Controller
                 createdBy: $data->createdBy,
                 sellingUnits: $data->sellingUnits,
                 purchaseConfig: $data->purchaseConfig,
+                packaging: $data->packaging,
             );
         }
 
         // Ensure unique SKU — append suffix if collision
-        if (\App\Models\Product::withTrashed()->where('sku', $data->sku)->exists()) {
+        if (Product::withTrashed()->where('sku', $data->sku)->exists()) {
             $base = $data->sku;
             $n = 1;
-            while (\App\Models\Product::withTrashed()->where('sku', $base . '-' . $n)->exists()) {
+            while (Product::withTrashed()->where('sku', $base.'-'.$n)->exists()) {
                 $n++;
             }
-            $data = new \App\Domains\Products\DTOs\CreateProductData(
+            $data = new CreateProductData(
                 name: $data->name,
-                sku: $base . '-' . $n,
+                sku: $base.'-'.$n,
                 barcode: $data->barcode,
                 categoryId: $data->categoryId,
                 description: $data->description,
@@ -109,6 +118,7 @@ class ProductController extends Controller
                 createdBy: $data->createdBy,
                 sellingUnits: $data->sellingUnits,
                 purchaseConfig: $data->purchaseConfig,
+                packaging: $data->packaging,
             );
         }
 
@@ -119,6 +129,13 @@ class ProductController extends Controller
                 ->with('success', "{$product->name} saved ✓");
         }
 
+        if ($request->boolean('_setup_formula')) {
+            return redirect()->route('inventory.show', [
+                'id' => $product->id,
+                'tab' => 'composition',
+            ])->with('success', 'Product created. Add its formula below.');
+        }
+
         return redirect()->route('inventory.show', $product->id)
             ->with('success', 'Product created successfully.');
     }
@@ -127,28 +144,28 @@ class ProductController extends Controller
     {
         $product = $this->productService->get($id);
 
-        $movements = \App\Models\InventoryTransaction::with(['product' => fn ($q) => $q->withArchived()])
+        $movements = InventoryTransaction::with(['product' => fn ($q) => $q->withArchived()])
             ->where('product_id', $id)
             ->orderBy('created_at', 'desc')
             ->take(20)
             ->get()
             ->toArray();
 
-        $purchases = \App\Models\PurchaseBillItem::with('purchaseBill.supplier')
+        $purchases = PurchaseBillItem::with('purchaseBill.supplier')
             ->where('product_id', $id)
             ->orderBy('created_at', 'desc')
             ->take(20)
             ->get()
             ->toArray();
 
-        $sales = \App\Models\SaleItem::with('sale.customer')
+        $sales = SaleItem::with('sale.customer')
             ->where('product_id', $id)
             ->orderBy('created_at', 'desc')
             ->take(20)
             ->get()
             ->toArray();
 
-        $blocker = app(\App\Policies\Lifecycle\ProductPolicy::class)->deleteBlocker($product);
+        $blocker = app(ProductPolicy::class)->deleteBlocker($product);
 
         return Inertia::render('inventory/ProductDetails', [
             'product' => $product->toArray(),
@@ -177,6 +194,8 @@ class ProductController extends Controller
 
     public function update(UpdateProductRequest $request, int $id): RedirectResponse
     {
+        $this->authorize('products.edit');
+
         $product = $this->productService->update($id, $request->validated());
 
         return redirect()->route('inventory.show', $product->id)
@@ -187,11 +206,12 @@ class ProductController extends Controller
     {
         $this->authorize('lifecycle.delete-products');
 
-        $product = \App\Models\Product::withArchived()->findOrFail($id);
+        $product = Product::withArchived()->findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
             $this->lifecycle->delete($product, $reason, auth()->user());
+
             return redirect()->route('inventory.index')
                 ->with('success', "Product '{$product->name}' moved to the Recycle Bin.");
         } catch (\Throwable $e) {
@@ -203,11 +223,12 @@ class ProductController extends Controller
     {
         $this->authorize('lifecycle.archive-products');
 
-        $product = \App\Models\Product::withArchived()->findOrFail($id);
+        $product = Product::withArchived()->findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
             $this->lifecycle->archive($product, $reason, auth()->user());
+
             return redirect()->route('inventory.show', $product->id)
                 ->with('success', "Product '{$product->name}' archived.");
         } catch (\Throwable $e) {
@@ -219,11 +240,12 @@ class ProductController extends Controller
     {
         $this->authorize('lifecycle.archive-products');
 
-        $product = \App\Models\Product::withArchived()->findOrFail($id);
+        $product = Product::withArchived()->findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
             $this->lifecycle->unarchive($product, $reason, auth()->user());
+
             return redirect()->route('inventory.show', $product->id)
                 ->with('success', "Product '{$product->name}' is active again.");
         } catch (\Throwable $e) {
@@ -231,10 +253,11 @@ class ProductController extends Controller
         }
     }
 
-    public function generateSku(): \Illuminate\Http\JsonResponse
+    public function generateSku(): JsonResponse
     {
         $name = request('name', '');
         $sku = $this->productService->generateSku($name);
+
         return response()->json(['sku' => $sku]);
     }
 
@@ -266,6 +289,7 @@ class ProductController extends Controller
     public function productUnits(): JsonResponse
     {
         $options = $this->productUnitService->getUnitOptions();
+
         return response()->json([
             'success' => true,
             'data' => $options,

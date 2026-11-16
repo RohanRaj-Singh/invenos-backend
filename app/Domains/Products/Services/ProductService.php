@@ -4,10 +4,11 @@ namespace App\Domains\Products\Services;
 
 use App\Domains\Products\DTOs\CreateProductData;
 use App\Models\Category;
+use App\Models\InventoryTransaction;
 use App\Models\Product;
+use App\Models\ProductComposition;
 use App\Models\ProductPackaging;
 use App\Models\SellingUnit;
-use App\Models\InventoryTransaction;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
@@ -25,8 +26,8 @@ class ProductService
         if ($query) {
             $q->where(function ($q) use ($query) {
                 $q->where('name', 'like', "%{$query}%")
-                  ->orWhere('sku', 'like', "%{$query}%")
-                  ->orWhere('barcode', 'like', "%{$query}%");
+                    ->orWhere('sku', 'like', "%{$query}%")
+                    ->orWhere('barcode', 'like', "%{$query}%");
             });
         }
 
@@ -35,8 +36,16 @@ class ProductService
         }
 
         return $q->with('category', 'sellingUnits')
-                 ->orderBy('name')
-                 ->paginate($perPage);
+            ->withExists([
+                'compositions as has_consumption_composition' => fn ($composition) => $composition
+                    ->where('kind', ProductComposition::KIND_CONSUMPTION)
+                    ->where('is_active', true),
+                'compositions as has_assembly_composition' => fn ($composition) => $composition
+                    ->where('kind', ProductComposition::KIND_ASSEMBLY)
+                    ->where('is_active', true),
+            ])
+            ->orderBy('name')
+            ->paginate($perPage);
     }
 
     public function create(CreateProductData $data): Product
@@ -75,7 +84,7 @@ class ProductService
             }
 
             // 4. Handle packaging levels (if provided)
-            if (!empty($data->packaging)) {
+            if (! empty($data->packaging)) {
                 $this->savePackaging($product->id, $data->packaging);
 
                 // Derive selling units from packaging structure
@@ -84,7 +93,7 @@ class ProductService
 
             // 5. Handle explicit selling units (legacy behaviour, for products
             //    without packaging or additional custom units)
-            if (!empty($data->sellingUnits)) {
+            if (! empty($data->sellingUnits)) {
                 foreach ($data->sellingUnits as $unit) {
                     $product->sellingUnits()->create([
                         'name' => $unit['name'],
@@ -119,6 +128,10 @@ class ProductService
     {
         return DB::transaction(function () use ($id, $data) {
             $product = Product::withArchived()->findOrFail($id);
+
+            // Stock is owned by the inventory ledger; edits must go through an adjustment.
+            unset($data['stock_quantity']);
+
             $product->update($data);
 
             // If packaging levels were provided, update them and re-derive
@@ -126,7 +139,7 @@ class ProductService
                 // Delete existing packaging levels and replace
                 $product->packaging()->delete();
 
-                if (!empty($data['packaging'])) {
+                if (! empty($data['packaging'])) {
                     $this->savePackaging($product->id, $data['packaging']);
                     $this->derivationEngine->derive($product->id);
                 } else {
@@ -143,8 +156,8 @@ class ProductService
             // engine owns the units, so skip reconciliation to avoid
             // duplicating/overwriting derived units. Custom (non-packaged)
             // products fall through and keep their explicit units in sync.
-            $packagingProvided = array_key_exists('packaging', $data) && !empty($data['packaging']);
-            if (array_key_exists('selling_units', $data) && !$packagingProvided) {
+            $packagingProvided = array_key_exists('packaging', $data) && ! empty($data['packaging']);
+            if (array_key_exists('selling_units', $data) && ! $packagingProvided) {
                 $this->syncSellingUnits($product->id, $data['selling_units']);
             }
 
@@ -180,6 +193,7 @@ class ProductService
     {
         $product = Product::withTrashed()->withArchived()->findOrFail($id);
         $product->restore();
+
         return $product;
     }
 
@@ -187,6 +201,14 @@ class ProductService
     {
         return Product::withArchived()
             ->with('category', 'sellingUnits', 'packaging.containerUnit', 'packaging.containsUnit')
+            ->withExists([
+                'compositions as has_consumption_composition' => fn ($composition) => $composition
+                    ->where('kind', ProductComposition::KIND_CONSUMPTION)
+                    ->where('is_active', true),
+                'compositions as has_assembly_composition' => fn ($composition) => $composition
+                    ->where('kind', ProductComposition::KIND_ASSEMBLY)
+                    ->where('is_active', true),
+            ])
             ->findOrFail($id);
     }
 
@@ -195,10 +217,10 @@ class ProductService
         $prefix = strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $name), 0, 3));
         // Archived SKUs are still taken — they must not be handed out again.
         $count = Product::withTrashed()->withArchived()->where('sku', 'like', "{$prefix}-%")->count() + 1;
-        $sku = "{$prefix}-" . str_pad((string) $count, 4, '0', STR_PAD_LEFT);
+        $sku = "{$prefix}-".str_pad((string) $count, 4, '0', STR_PAD_LEFT);
 
         if (Product::withTrashed()->withArchived()->where('sku', $sku)->exists()) {
-            $sku = "{$prefix}-" . str_pad((string) ($count + 1), 4, '0', STR_PAD_LEFT);
+            $sku = "{$prefix}-".str_pad((string) ($count + 1), 4, '0', STR_PAD_LEFT);
         }
 
         return $sku;
@@ -217,13 +239,13 @@ class ProductService
         $rows = [];
         foreach ($levels as $level) {
             $rows[] = [
-                'product_id'        => $productId,
+                'product_id' => $productId,
                 'container_unit_id' => $level['container_unit_id'],
-                'contains_unit_id'  => $level['contains_unit_id'],
-                'quantity'          => $level['quantity'],
-                'level'             => $level['level'],
-                'created_at'        => now(),
-                'updated_at'        => now(),
+                'contains_unit_id' => $level['contains_unit_id'],
+                'quantity' => $level['quantity'],
+                'level' => $level['level'],
+                'created_at' => now(),
+                'updated_at' => now(),
             ];
         }
 
@@ -268,16 +290,16 @@ class ProductService
 
         foreach ($provided as $i => $unit) {
             $payload = [
-                'name'            => $unit['name'] ?? ('Unit ' . ($i + 1)),
-                'unit_id'         => $unit['unit_id'] ?? ($unit['name'] ?? 'Unit'),
-                'quantity'        => isset($unit['quantity']) ? (float) $unit['quantity'] : 1.0,
-                'sale_price'      => isset($unit['sale_price']) ? (float) $unit['sale_price'] : 0.0,
-                'is_default'      => isset($unit['is_default']) && $unit['is_default'],
+                'name' => $unit['name'] ?? ('Unit '.($i + 1)),
+                'unit_id' => $unit['unit_id'] ?? ($unit['name'] ?? 'Unit'),
+                'quantity' => isset($unit['quantity']) ? (float) $unit['quantity'] : 1.0,
+                'sale_price' => isset($unit['sale_price']) ? (float) $unit['sale_price'] : 0.0,
+                'is_default' => isset($unit['is_default']) && $unit['is_default'],
                 'product_unit_id' => $unit['product_unit_id'] ?? null,
             ];
 
             // Default the first unit if none is explicitly marked.
-            if ($i === 0 && !array_key_exists('is_default', $unit)) {
+            if ($i === 0 && ! array_key_exists('is_default', $unit)) {
                 $payload['is_default'] = true;
             }
 
@@ -288,6 +310,7 @@ class ProductService
                 if ($target !== null && $target->product_unit_id === $payload['product_unit_id']) {
                     $target->update($payload);
                     $seen[] = $target->id;
+
                     continue;
                 }
             }
@@ -297,7 +320,7 @@ class ProductService
         }
 
         // Remove custom units that are no longer part of the submission.
-        if (!empty($seen)) {
+        if (! empty($seen)) {
             SellingUnit::where('product_id', $productId)
                 ->whereNull('packaging_id')
                 ->whereNotIn('id', $seen)
@@ -306,5 +329,4 @@ class ProductService
 
         $this->ensureSingleDefault($productId);
     }
-
 }

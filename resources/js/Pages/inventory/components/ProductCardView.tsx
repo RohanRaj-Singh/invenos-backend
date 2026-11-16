@@ -1,6 +1,7 @@
 import type { StockStatus } from '@/types'
 import { router } from '@inertiajs/react'
-import { Package, ArrowRight } from 'lucide-react'
+import { Beaker, Package, ArrowRight } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import StockBadge from './StockBadge'
 import ArchivedBadge from './ArchivedBadge'
@@ -19,7 +20,20 @@ interface BackendProduct {
   last_purchase_cost?: number | null
   default_purchase_cost?: number | null
   base_unit_id?: string
+  has_consumption_composition?: boolean
+  has_assembly_composition?: boolean
   archived_at?: string | null
+}
+
+function isConsumptionOnly(product: BackendProduct): boolean {
+  return Boolean(product.has_consumption_composition && !product.has_assembly_composition)
+}
+
+function compositionLabel(product: BackendProduct): string | null {
+  if (product.has_consumption_composition && product.has_assembly_composition) return 'Formula + assembly'
+  if (product.has_consumption_composition) return 'Formula'
+  if (product.has_assembly_composition) return 'Assembly'
+  return null
 }
 
 interface ProductCardViewProps {
@@ -64,9 +78,16 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                       <h3 className="text-sm font-semibold text-foreground leading-snug line-clamp-2">
                         {product.name}
                       </h3>
-                      <code className="text-[11px] font-mono text-muted-foreground">
-                        {product.sku}
-                      </code>
+                      <div className="flex items-center gap-1.5">
+                        <code className="text-[11px] font-mono text-muted-foreground">
+                          {product.sku}
+                        </code>
+                        {compositionLabel(product) && (
+                          <Badge variant="outline" className="gap-1 border-primary/30 px-1.5 py-0 text-[9px] text-primary">
+                            <Beaker className="size-2.5" /> {compositionLabel(product)}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 mt-1">
@@ -84,10 +105,12 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                     <div className="text-[10px] text-muted-foreground">Stock</div>
                     <div className={cn(
                       'text-xs font-medium mt-0.5',
-                      product.stock_quantity === 0 && 'text-red-500',
-                      product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
+                      !isConsumptionOnly(product) && product.stock_quantity === 0 && 'text-red-500',
+                      !isConsumptionOnly(product) && product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
                     )}>
-                      {product.stock_quantity} {((product as any).base_unit_name || product.base_unit_id || 'Unit')}
+                      {isConsumptionOnly(product)
+                        ? 'Not stocked'
+                        : `${product.stock_quantity} ${((product as any).base_unit_name || product.base_unit_id || 'Unit')}`}
                     </div>
                   </div>
                   <div className="rounded-lg bg-muted/50 px-2.5 py-2">
@@ -102,7 +125,9 @@ export default function ProductCardView({ products }: ProductCardViewProps) {
                   </div>
                   <div className="flex items-center gap-1.5">
                     {product.archived_at && <ArchivedBadge size="xs" />}
-                    <StockBadge status={product.status as StockStatus} size="xs" />
+                    {isConsumptionOnly(product)
+                      ? <Badge variant="secondary" className="text-[10px]">Not stocked</Badge>
+                      : <StockBadge status={product.status as StockStatus} size="xs" />}
                   </div>
                 </div>
               </div>

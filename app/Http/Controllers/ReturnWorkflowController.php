@@ -6,6 +6,7 @@ use App\Domains\Returns\DTOs\ReturnCreateData;
 use App\Domains\Returns\Services\ReturnService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -27,6 +28,8 @@ class ReturnWorkflowController extends Controller
 
     private function store(Request $request, string $type, string $referenceType): RedirectResponse
     {
+        $this->authorize('returns.create');
+
         $validated = $request->validate([
             'reference_id' => 'required|integer',
             'return_date' => 'nullable|date',
@@ -48,6 +51,12 @@ class ReturnWorkflowController extends Controller
             'items.*.restock' => 'nullable|boolean',
             'items.*.reason_id' => 'nullable|integer',
             'items.*.notes' => 'nullable|string',
+            // Explicit recovered material only. The server resolves the
+            // component, unit, eligibility and cost from the run snapshot.
+            'items.*.material_recoveries' => 'nullable|array',
+            'items.*.material_recoveries.*.composition_run_item_id' => 'required|integer|min:1',
+            'items.*.material_recoveries.*.quantity' => 'required|numeric|min:0.000001',
+            'idempotency_key' => 'nullable|string|max:100',
             'subtotal' => 'nullable|numeric|min:0',
             'discount' => 'nullable|numeric|min:0',
             'grand_total' => 'required|numeric|min:0',
@@ -72,12 +81,21 @@ class ReturnWorkflowController extends Controller
 
         return Inertia::render(
             $return->type === 'SALE' ? 'returns/SaleReturnDetail' : 'returns/PurchaseReturnDetail',
-            ['return' => $return],
+            [
+                'return' => $return->load([
+                    'componentRecoveries.component',
+                    'componentRecoveries.inventoryTransaction',
+                    'items',
+                ]),
+                'canProcess' => Gate::allows('returns.process'),
+            ],
         );
     }
 
     public function complete(int $id): RedirectResponse
     {
+        $this->authorize('returns.process');
+
         $this->returns->completeReturn($id);
 
         return back()->with('success', 'Return completed. Stock, balance and cash updated.');
@@ -85,6 +103,8 @@ class ReturnWorkflowController extends Controller
 
     public function cancel(int $id): RedirectResponse
     {
+        $this->authorize('returns.process');
+
         $this->returns->cancelReturn($id);
 
         return back()->with('success', 'Return cancelled.');
@@ -92,6 +112,8 @@ class ReturnWorkflowController extends Controller
 
     public function reverse(int $id): RedirectResponse
     {
+        $this->authorize('returns.process');
+
         $this->returns->reverseReturn($id, auth()->user()?->name);
 
         return back()->with('success', 'Return reversed. Compensating entries recorded.');

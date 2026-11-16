@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Wallet,
   Sparkles,
+  Beaker,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import StatsCard from './components/StatsCard'
@@ -25,6 +26,7 @@ const QUICK_ACTIONS = [
   { id: 'new-sale', label: 'New Sale', desc: 'Start a POS transaction', icon: ShoppingCart, href: '/sales/pos', color: 'blue' },
   { id: 'new-purchase', label: 'New Purchase', desc: 'Record supplier order', icon: ShoppingBag, href: '/purchases/new', color: 'amber' },
   { id: 'add-product', label: 'Add Product', desc: 'Add to inventory', icon: PackagePlus, href: '/inventory/add', color: 'purple' },
+  { id: 'add-formula', label: 'New Formula', desc: 'Create a formula', icon: Beaker, href: '/inventory/add?formula=1', color: 'teal' },
   { id: 'payment-in', label: 'Payment In', desc: 'Receive payment', icon: Banknote, href: '/payments', color: 'green' },
   { id: 'add-expense', label: 'Add Expense', desc: 'Record expense', icon: Wallet, href: '/expenses/new', color: 'red' },
   { id: 'process-return', label: 'Process Return', desc: 'Sale or purchase return', icon: RotateCcw, href: '/sales/returns', color: 'orange' },
@@ -37,6 +39,7 @@ const ACTION_COLORS: Record<string, { bg: string; icon: string; hover: string }>
   green: { bg: 'bg-emerald-50 dark:bg-emerald-500/10', icon: 'text-emerald-600 dark:text-emerald-400', hover: 'hover:border-emerald-200 dark:hover:border-emerald-800' },
   red: { bg: 'bg-red-50 dark:bg-red-500/10', icon: 'text-red-600 dark:text-red-400', hover: 'hover:border-red-200 dark:hover:border-red-800' },
   orange: { bg: 'bg-orange-50 dark:bg-orange-500/10', icon: 'text-orange-600 dark:text-orange-400', hover: 'hover:border-orange-200 dark:hover:border-orange-800' },
+  teal: { bg: 'bg-teal-50 dark:bg-teal-500/10', icon: 'text-teal-600 dark:text-teal-400', hover: 'hover:border-teal-200 dark:hover:border-teal-800' },
 }
 
 type DateMode = 'today' | 'yesterday' | 'last7' | 'thisMonth' | 'custom'

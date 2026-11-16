@@ -1,10 +1,10 @@
 import type { StockStatus } from '@/types'
 import { router } from '@inertiajs/react'
-import { ArrowRight, Package } from 'lucide-react'
+import { ArrowRight, Beaker, Package } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import StockBadge from './StockBadge'
 import ArchivedBadge from './ArchivedBadge'
 import { formatCurrency } from '@/lib/format'
-import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
 
 interface SellingUnit {
@@ -28,6 +28,9 @@ interface BackendProduct {
   status: string
   archived_at?: string | null
   selling_units: SellingUnit[]
+  has_consumption_composition?: boolean
+  has_assembly_composition?: boolean
+  ingredient_count?: number
 }
 
 interface ProductTableProps {
@@ -43,8 +46,22 @@ function getCostPrice(p: BackendProduct): number {
   return p.last_purchase_cost ?? p.default_purchase_cost ?? 0
 }
 
+function isConsumptionOnly(product: BackendProduct): boolean {
+  return Boolean(product.has_consumption_composition && !product.has_assembly_composition)
+}
+
+function compositionLabel(product: BackendProduct): string | null {
+  if (product.has_consumption_composition && product.has_assembly_composition) return 'Formula + assembly'
+  if (product.has_consumption_composition) return 'Formula'
+  if (product.has_assembly_composition) return 'Assembly'
+  return null
+}
+
 export default function ProductTable({ products }: ProductTableProps) {
-  const totalValue = products.reduce((sum, p) => sum + p.stock_quantity * getCostPrice(p), 0)
+  const totalValue = products.reduce(
+    (sum, p) => isConsumptionOnly(p) ? sum : sum + p.stock_quantity * getCostPrice(p),
+    0,
+  )
 
   return (
     <div className="rounded-xl border border-border overflow-hidden">
@@ -89,8 +106,15 @@ export default function ProductTable({ products }: ProductTableProps) {
                       <div className="size-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
                         <Package className="size-4 text-muted-foreground" />
                       </div>
-                      <div>
-                        <div className="text-sm font-medium text-foreground">{product.name}</div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-foreground">{product.name}</span>
+                          {compositionLabel(product) && (
+                            <Badge variant="outline" className="gap-1 border-primary/30 px-1.5 py-0 text-[9px] text-primary">
+                              <Beaker className="size-2.5" /> {compositionLabel(product)}
+                            </Badge>
+                          )}
+                        </div>
                         <div className="text-[11px] text-muted-foreground mt-0.5">{product.barcode}</div>
                       </div>
                     </div>
@@ -114,23 +138,36 @@ export default function ProductTable({ products }: ProductTableProps) {
                     onClick={() => router.visit(`/inventory/product/${product.id}`)}
                   >
                     <div className="flex flex-col items-end gap-1">
-                      <span
-                        className={cn(
-                          'text-sm font-semibold tabular-nums',
-                          product.stock_quantity === 0 && 'text-red-500',
-                          product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
-                        )}
-                      >
-                        {product.stock_quantity.toLocaleString()}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">{((product as any).base_unit_name || product.base_unit_id || 'Unit')}</span>
+                      {isConsumptionOnly(product) ? (
+                        <>
+                          <span className="text-xs font-medium text-primary">Not stocked</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {Number(product.ingredient_count ?? 0)} ingredient{Number(product.ingredient_count ?? 0) === 1 ? '' : 's'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            className={cn(
+                              'text-sm font-semibold tabular-nums',
+                              product.stock_quantity === 0 && 'text-red-500',
+                              product.stock_quantity > 0 && product.status === 'low-stock' && 'text-amber-500'
+                            )}
+                          >
+                            {product.stock_quantity.toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">{((product as any).base_unit_name || product.base_unit_id || 'Unit')}</span>
+                        </>
+                      )}
                     </div>
                   </td>
                   <td
                     className="px-4 py-3.5 text-right cursor-pointer"
                     onClick={() => router.visit(`/inventory/product/${product.id}`)}
                   >
-                    <span className="text-sm tabular-nums">{costPrice > 0 ? formatCurrency(costPrice) : '—'}</span>
+                    <span className="text-sm tabular-nums">
+                      {isConsumptionOnly(product) ? '—' : costPrice > 0 ? formatCurrency(costPrice) : '—'}
+                    </span>
                   </td>
                   <td
                     className="px-4 py-3.5 text-right cursor-pointer"
@@ -142,14 +179,18 @@ export default function ProductTable({ products }: ProductTableProps) {
                     className="px-4 py-3.5 text-right cursor-pointer"
                     onClick={() => router.visit(`/inventory/product/${product.id}`)}
                   >
-                    <span className="text-sm text-muted-foreground tabular-nums">{formatCurrency(product.stock_quantity * costPrice)}</span>
+                    <span className="text-sm text-muted-foreground tabular-nums">
+                      {isConsumptionOnly(product) ? '—' : formatCurrency(product.stock_quantity * costPrice)}
+                    </span>
                   </td>
                   <td
                     className="px-4 py-3.5 cursor-pointer"
                     onClick={() => router.visit(`/inventory/product/${product.id}`)}
                   >
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <StockBadge status={product.status as StockStatus} />
+                      {isConsumptionOnly(product)
+                        ? <Badge variant="secondary" className="text-[10px]">Not stocked</Badge>
+                        : <StockBadge status={product.status as StockStatus} />}
                       {product.archived_at && <ArchivedBadge />}
                     </div>
                   </td>

@@ -4,12 +4,16 @@ namespace App\Domains\Reports\Services;
 
 use App\Domains\Reports\DTOs\ReportFilters;
 use App\Models\Expense;
-use App\Models\Sale;
 use App\Models\ReturnModel;
+use App\Models\Sale;
 use Illuminate\Support\Facades\DB;
 
 class SalesReportService
 {
+    public function __construct(
+        private readonly CogsCalculator $cogs,
+    ) {}
+
     /**
      * Sales Register — all sales within date range, paginated.
      */
@@ -17,8 +21,8 @@ class SalesReportService
     {
         $query = Sale::with('customer')
             ->whereBetween('date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
-            ->when($filters->contactId, fn($q) => $q->where('customer_id', $filters->contactId))
-            ->when($filters->status, fn($q) => $q->where('payment_status', $filters->status))
+            ->when($filters->contactId, fn ($q) => $q->where('customer_id', $filters->contactId))
+            ->when($filters->status, fn ($q) => $q->where('payment_status', $filters->status))
             ->orderBy($filters->sortBy, $filters->sortDir);
 
         $sales = $filters->perPage ? $query->paginate($filters->perPage) : $query->get();
@@ -27,11 +31,11 @@ class SalesReportService
         $returnsTotal = ReturnModel::where('type', 'SALE')
             ->where('status', 'completed')
             ->whereBetween('return_date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
-            ->when($filters->contactId, fn($q) => $q->where('contact_id', $filters->contactId))
+            ->when($filters->contactId, fn ($q) => $q->where('contact_id', $filters->contactId))
             ->sum('grand_total');
 
         $allSales = Sale::whereBetween('date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
-            ->when($filters->contactId, fn($q) => $q->where('customer_id', $filters->contactId))
+            ->when($filters->contactId, fn ($q) => $q->where('customer_id', $filters->contactId))
             ->get();
 
         return [
@@ -109,7 +113,7 @@ class SalesReportService
             ->where('type', 'SALE')
             ->where('status', 'completed')
             ->whereBetween('return_date', [$filters->dateFrom ?? '2000-01-01', $filters->dateTo ?? now()->format('Y-m-d')])
-            ->when($filters->contactId, fn($q) => $q->where('contact_id', $filters->contactId))
+            ->when($filters->contactId, fn ($q) => $q->where('contact_id', $filters->contactId))
             ->orderBy('return_date', 'desc')
             ->get();
 
@@ -163,13 +167,9 @@ class SalesReportService
             ->whereBetween('return_date', [$from, $to])
             ->pluck('reference_id');
 
-        $cogs = (float) DB::table('sale_items')
-            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
-            ->whereNull('sales.deleted_at')
-            ->whereBetween('sales.date', [$from, $to])
-            ->whereNotIn('sales.id', $returnedSaleIds)
-            ->select(DB::raw('SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)) as cogs'))
-            ->value('cogs') ?? 0;
+        $costSummary = $this->cogs->summary($from, $to);
+        $cogs = round($costSummary['cogs'] - $this->cogs->returned($from, $to), 6);
+        $returnedByItem = $this->cogs->returnedQuantityByItem($from, $to);
 
         $grossProfit = $netRevenue - $cogs;
         $margin = $netRevenue > 0 ? round(($grossProfit / $netRevenue) * 100, 1) : 0;
@@ -178,25 +178,66 @@ class SalesReportService
         $netProfit = $grossProfit - $totalExpenses;
 
         // Bill-wise profit per invoice
-        $billWise = Sale::with('items')
+        $sales = Sale::with('items')
             ->whereBetween('date', [$from, $to])
             ->orderBy('date', 'desc')
-            ->get()
-            ->map(function ($sale) use ($returnedSaleIds) {
-                $cost = $sale->items->sum(fn($i) => ($i->base_quantity ?? 0) * ($i->cost_price ?? 0));
-                $returned = $returnedSaleIds->contains($sale->id);
-                return [
-                    'id' => $sale->id,
-                    'invoice_number' => $sale->invoice_number,
-                    'date' => $sale->date,
-                    'customer_name' => $sale->customer_name ?? 'Walk-in',
-                    'revenue' => round($sale->grand_total),
-                    'cogs' => round($cost),
-                    'profit' => round($sale->grand_total - $cost),
-                    'margin_pct' => $sale->grand_total > 0 ? round(($sale->grand_total - $cost) / $sale->grand_total * 100, 1) : 0,
-                    'returned' => $returned,
-                ];
-            });
+            ->get();
+
+        $lineCosts = $this->cogs->lineCostsForSaleItemIds(
+            $sales->flatMap(fn ($sale) => $sale->items->pluck('id'))->all()
+        );
+
+        $billWise = $sales->map(function ($sale) use ($returnedSaleIds, $returnedByItem, $lineCosts) {
+            $cost = 0.0;
+            $costComplete = true;
+            $uncostedLines = 0;
+            $uncostedSimpleLines = 0;
+
+            foreach ($sale->items as $item) {
+                $returnedQty = (float) ($returnedByItem[$item->id] ?? 0);
+                $soldQty = max(0, (float) ($item->base_quantity ?? 0) - $returnedQty);
+                $line = $lineCosts[(int) $item->id] ?? null;
+
+                if ($line === null) {
+                    $cost += $soldQty * (float) ($item->cost_price ?? 0);
+
+                    continue;
+                }
+
+                $unitCost = $line['base_quantity'] > 0
+                    ? $line['total_cost'] / $line['base_quantity']
+                    : 0.0;
+
+                $cost += $soldQty * $unitCost;
+
+                if (! $line['cost_complete']) {
+                    $costComplete = false;
+
+                    if ($line['is_composition']) {
+                        $uncostedLines += max(1, $line['uncosted_lines']);
+                    } else {
+                        $uncostedSimpleLines += max(1, $line['uncosted_lines']);
+                    }
+                }
+            }
+
+            $returned = $returnedSaleIds->contains($sale->id);
+
+            return [
+                'id' => $sale->id,
+                'invoice_number' => $sale->invoice_number,
+                'date' => $sale->date,
+                'customer_name' => $sale->customer_name ?? 'Walk-in',
+                'revenue' => round($sale->grand_total),
+                'cogs' => round($cost),
+                'profit' => round($sale->grand_total - $cost),
+                'margin_pct' => $sale->grand_total > 0 ? round(($sale->grand_total - $cost) / $sale->grand_total * 100, 1) : 0,
+                'returned' => $returned,
+                'cost_complete' => $costComplete,
+                'uncosted_composition_lines' => $uncostedLines,
+                'uncosted_simple_lines' => $uncostedSimpleLines,
+            ];
+        });
 
         return [
             'revenue' => round($grossRevenue),
@@ -207,6 +248,13 @@ class SalesReportService
             'gross_margin_pct' => $margin,
             'total_expenses' => round($totalExpenses),
             'net_profit' => round($netProfit),
+            'cost_complete' => $costSummary['cost_complete'],
+            'simple_cost_complete' => $costSummary['simple_cost_complete'],
+            'uncosted_simple_items' => $costSummary['uncosted_simple_items'],
+            'uncosted_simple_lines' => $costSummary['uncosted_simple_lines'],
+            'uncosted_composition_items' => $costSummary['uncosted_composition_items'],
+            'uncosted_composition_lines' => $costSummary['uncosted_composition_lines'],
+            'composition_cost_basis' => $costSummary['composition_cost_basis'],
             'bill_wise' => $billWise,
         ];
     }

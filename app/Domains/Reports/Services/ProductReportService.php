@@ -17,20 +17,21 @@ class ProductReportService
     public function timeline(ReportFilters $filters): array
     {
         $productId = $filters->productId;
-        if (!$productId) {
+        if (! $productId) {
             throw new \InvalidArgumentException('product_id is required for product timeline.');
         }
 
         $product = Product::with('category')->findOrFail($productId);
 
         $movements = InventoryTransaction::where('product_id', $productId)
-            ->when($filters->dateFrom, fn($q) => $q->whereDate('date', '>=', $filters->dateFrom))
-            ->when($filters->dateTo, fn($q) => $q->whereDate('date', '<=', $filters->dateTo))
+            ->when($filters->dateFrom, fn ($q) => $q->whereDate('date', '>=', $filters->dateFrom))
+            ->when($filters->dateTo, fn ($q) => $q->whereDate('date', '<=', $filters->dateTo))
             ->orderBy('created_at', 'asc')
             ->get();
 
         // Compute aggregates
         $totalPurchased = $movements->whereIn('type', ['purchase'])->sum('quantity');
+        $totalProduced = $movements->where('type', 'production')->sum('quantity');
         $totalSold = abs($movements->where('type', 'sale')->sum('quantity'));
         $totalSaleReturned = $movements->where('type', 'sale-return')->sum('quantity');
         $totalPurchaseReturned = abs($movements->where('type', 'purchase-return')->sum('quantity'));
@@ -43,6 +44,7 @@ class ProductReportService
                 'current_stock' => $product->stock_quantity,
                 'stock_value' => round($product->stock_quantity * ($product->last_purchase_cost ?: 0)),
                 'total_purchased' => round($totalPurchased),
+                'total_produced' => round($totalProduced),
                 'total_sold' => round($totalSold),
                 'total_sale_returned' => round($totalSaleReturned),
                 'total_purchase_returned' => round($totalPurchaseReturned),

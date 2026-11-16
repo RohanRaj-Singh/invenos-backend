@@ -7,11 +7,17 @@ use App\Contracts\Lifecycle\Deletable;
 use App\Contracts\Lifecycle\PermanentDeletable;
 use App\Contracts\Lifecycle\Restorable;
 use App\Contracts\Lifecycle\Unarchivable;
+use App\Models\CompositionRun;
+use App\Models\CompositionRunItem;
 use App\Models\Product;
+use App\Models\ProductComposition;
+use App\Models\ProductCompositionItem;
+use App\Models\PurchaseBillItem;
+use App\Models\SaleItem;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User;
 
-class ProductPolicy implements Archivable, Deletable, Restorable, Unarchivable, PermanentDeletable
+class ProductPolicy implements Archivable, Deletable, PermanentDeletable, Restorable, Unarchivable
 {
     public function canArchive(Model $record): void
     {
@@ -53,14 +59,23 @@ class ProductPolicy implements Archivable, Deletable, Restorable, Unarchivable, 
     public function deleteBlocker(Model $record): ?array
     {
         /** @var Product $record */
-        $sales = \App\Models\SaleItem::where('product_id', $record->id)->count();
-        $purchases = \App\Models\PurchaseBillItem::where('product_id', $record->id)->count();
+        $sales = SaleItem::where('product_id', $record->id)->count();
+        $purchases = PurchaseBillItem::where('product_id', $record->id)->count();
 
-        if ($sales === 0 && $purchases === 0) {
+        $compositionUsage = ProductComposition::where('product_id', $record->id)->count()
+            + ProductCompositionItem::where('component_product_id', $record->id)->count()
+            + CompositionRun::where('product_id', $record->id)->count()
+            + CompositionRunItem::where('component_product_id', $record->id)->count();
+
+        if ($sales === 0 && $purchases === 0 && $compositionUsage === 0) {
             return null;
         }
 
-        return ['sales' => $sales, 'purchases' => $purchases];
+        return [
+            'sales' => $sales,
+            'purchases' => $purchases,
+            'compositions' => $compositionUsage,
+        ];
     }
 
     public function previewImpact(Model $record): array
@@ -87,7 +102,7 @@ class ProductPolicy implements Archivable, Deletable, Restorable, Unarchivable, 
 
     public function canRestore(Model $record): void
     {
-        throw_if(!$record->trashed(), 'Product is not deleted.');
+        throw_if(! $record->trashed(), 'Product is not deleted.');
     }
 
     public function executeRestore(Model $record, User $user): void
@@ -97,6 +112,9 @@ class ProductPolicy implements Archivable, Deletable, Restorable, Unarchivable, 
 
     public function canPermanentDelete(Model $record): void
     {
-        // Admin-only gate already applied in controller
+        throw_if(
+            $this->deleteBlocker($record) !== null,
+            'Cannot permanently delete a product with transaction or composition history.'
+        );
     }
 }

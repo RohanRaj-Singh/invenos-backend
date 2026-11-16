@@ -21,6 +21,10 @@ export interface ProductFiltersProps {
   onCompletionStatusChange?: (v: 'all' | 'complete' | 'incomplete') => void
   archived?: ArchivedFilter
   onArchivedChange?: (v: ArchivedFilter) => void
+  composition?: 'all' | 'formula' | 'assembly'
+  onCompositionChange?: (v: 'all' | 'formula' | 'assembly') => void
+  /** Formula records hold no own stock; hide stock-only filters. */
+  isFormulaView?: boolean
   categories?: CategoryItem[]
 }
 
@@ -35,6 +39,9 @@ export default function ProductFilters({
   onCompletionStatusChange,
   archived = 'active',
   onArchivedChange,
+  composition = 'all',
+  onCompositionChange,
+  isFormulaView = false,
   categories = [],
 }: ProductFiltersProps) {
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
@@ -43,6 +50,7 @@ export default function ProductFilters({
     !!search ||
     category !== 'all' ||
     stockStatus !== 'all' ||
+    composition !== 'all' ||
     completionStatus !== 'all' ||
     archived !== 'active'
 
@@ -50,6 +58,7 @@ export default function ProductFilters({
     onSearchChange('')
     onCategoryChange('all')
     onStockStatusChange('all')
+    onCompositionChange?.('all')
     onCompletionStatusChange?.('all')
     onArchivedChange?.('active')
   }
@@ -108,10 +117,22 @@ export default function ProductFilters({
 
         <div className="w-px h-5 bg-border mx-1" />
 
-        <StockChip label="All" active={stockStatus === 'all'} onClick={() => onStockStatusChange('all')} />
-        <StockChip label="In Stock" active={stockStatus === 'in-stock'} onClick={() => onStockStatusChange('in-stock')} />
-        <StockChip label="Low Stock" active={stockStatus === 'low-stock'} onClick={() => onStockStatusChange('low-stock')} />
-        <StockChip label="Out of Stock" active={stockStatus === 'out-of-stock'} onClick={() => onStockStatusChange('out-of-stock')} />
+        {onStockStatusChange && !isFormulaView && (
+          <>
+            <StockChip label="All" active={stockStatus === 'all'} onClick={() => onStockStatusChange('all')} />
+            <StockChip label="In Stock" active={stockStatus === 'in-stock'} onClick={() => onStockStatusChange('in-stock')} />
+            <StockChip label="Low Stock" active={stockStatus === 'low-stock'} onClick={() => onStockStatusChange('low-stock')} />
+            <StockChip label="Out of Stock" active={stockStatus === 'out-of-stock'} onClick={() => onStockStatusChange('out-of-stock')} />
+          </>
+        )}
+
+        {onCompositionChange && (
+          <>
+            <div className="w-px h-5 bg-border mx-1" />
+            <StockChip label="All products" active={composition === 'all'} onClick={() => onCompositionChange('all')} />
+            <StockChip label="Formulas" active={composition === 'formula'} onClick={() => onCompositionChange('formula')} />
+          </>
+        )}
 
         {onCompletionStatusChange && (
           <>

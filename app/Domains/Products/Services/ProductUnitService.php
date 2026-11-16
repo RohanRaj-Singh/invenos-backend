@@ -20,42 +20,42 @@ class ProductUnitService
      */
     private const UNITS = [
         // Count
-        'piece'   => 'Piece',
+        'piece' => 'Piece',
         'capsule' => 'Capsule',
-        'tablet'  => 'Tablet',
-        'bottle'  => 'Bottle',
-        'box'     => 'Box',
-        'carton'  => 'Carton',
-        'strip'   => 'Strip',
-        'sachet'  => 'Sachet',
-        'packet'  => 'Packet',
-        'roll'    => 'Roll',
-        'sheet'   => 'Sheet',
-        'tray'    => 'Tray',
-        'pouch'   => 'Pouch',
-        'vial'    => 'Vial',
+        'tablet' => 'Tablet',
+        'bottle' => 'Bottle',
+        'box' => 'Box',
+        'carton' => 'Carton',
+        'strip' => 'Strip',
+        'sachet' => 'Sachet',
+        'packet' => 'Packet',
+        'roll' => 'Roll',
+        'sheet' => 'Sheet',
+        'tray' => 'Tray',
+        'pouch' => 'Pouch',
+        'vial' => 'Vial',
         'ampoule' => 'Ampoule',
-        'bag'     => 'Bag',
-        'tub'     => 'Tub',
-        'can'     => 'Can',
-        'jar'     => 'Jar',
+        'bag' => 'Bag',
+        'tub' => 'Tub',
+        'can' => 'Can',
+        'jar' => 'Jar',
         // Weight
-        'kg'      => 'Kilogram (kg)',
+        'kg' => 'Kilogram (kg)',
         'kilogram' => 'Kilogram (kg)',
-        'g'       => 'Gram (g)',
-        'gram'    => 'Gram (g)',
-        'mg'      => 'Milligram (mg)',
+        'g' => 'Gram (g)',
+        'gram' => 'Gram (g)',
+        'mg' => 'Milligram (mg)',
         'milligram' => 'Milligram (mg)',
         // Volume
-        'liter'   => 'Litre (L)',
-        'litre'   => 'Litre (L)',
-        'l'       => 'Litre (L)',
-        'ml'      => 'Millilitre (ml)',
+        'liter' => 'Litre (L)',
+        'litre' => 'Litre (L)',
+        'l' => 'Litre (L)',
+        'ml' => 'Millilitre (ml)',
         'millilitre' => 'Millilitre (ml)',
         // Length
-        'meter'   => 'Meter',
-        'm'       => 'Meter',
-        'cm'      => 'Centimetre (cm)',
+        'meter' => 'Meter',
+        'm' => 'Meter',
+        'cm' => 'Centimetre (cm)',
         'centimetre' => 'Centimetre (cm)',
     ];
 
@@ -82,7 +82,7 @@ class ProductUnitService
      * Base unit conversion — canonical base unit for each type.
      */
     private const BASE_UNITS = [
-        'count'  => 'piece',
+        'count' => 'piece',
         'weight' => 'mg',
         'volume' => 'ml',
         'length' => 'cm',
@@ -93,12 +93,12 @@ class ProductUnitService
      * factor = value_in_canonical_base / value_in_this_unit
      */
     private const BASE_FACTORS = [
-        'piece'   => 1,
+        'piece' => 1,
         'capsule' => 1, 'tablet' => 1, 'bottle' => 1, 'box' => 1,
-        'carton'  => 1, 'strip' => 1, 'sachet' => 1, 'packet' => 1,
-        'roll'    => 1, 'sheet' => 1, 'tray' => 1, 'pouch' => 1,
-        'vial'    => 1, 'ampoule' => 1, 'bag' => 1, 'tub' => 1,
-        'can'     => 1, 'jar' => 1,
+        'carton' => 1, 'strip' => 1, 'sachet' => 1, 'packet' => 1,
+        'roll' => 1, 'sheet' => 1, 'tray' => 1, 'pouch' => 1,
+        'vial' => 1, 'ampoule' => 1, 'bag' => 1, 'tub' => 1,
+        'can' => 1, 'jar' => 1,
         'mg' => 1, 'g' => 1000, 'kg' => 1000000, 'kilogram' => 1000000,
         'gram' => 1000, 'milligram' => 1,
         'ml' => 1, 'liter' => 1000, 'litre' => 1000, 'l' => 1000,
@@ -113,7 +113,6 @@ class ProductUnitService
     /**
      * Resolve any unit ID to its display name.
      *
-     * @param string|null $unitId
      * @return string "Piece", "Kilogram (kg)", "Capsule", etc.
      */
     public function resolveDisplayUnit(?string $unitId): string
@@ -123,23 +122,23 @@ class ProductUnitService
         }
 
         $key = strtolower(trim($unitId));
+
         return self::UNITS[$key] ?? ucfirst($unitId);
     }
 
     /**
      * Resolve a selling unit's display information.
      *
-     * @param SellingUnit $su
      * @return array{ name: string, unit_id: string, display_name: string, base_unit_name: string, quantity: float }
      */
     public function resolveSellingUnit(SellingUnit $su): array
     {
         return [
-            'name'            => $su->name,
-            'unit_id'         => $su->unit_id,
-            'display_name'    => $su->name,
-            'base_unit_name'  => $this->resolveDisplayUnit($su->unit_id),
-            'quantity'        => (float) $su->quantity,
+            'name' => $su->name,
+            'unit_id' => $su->unit_id,
+            'display_name' => $su->name,
+            'base_unit_name' => $this->resolveDisplayUnit($su->unit_id),
+            'quantity' => (float) $su->quantity,
         ];
     }
 
@@ -149,7 +148,6 @@ class ProductUnitService
      * Returns the selling unit that has a purchase cost if one exists,
      * otherwise falls back to the base unit display.
      *
-     * @param Product $product
      * @return array{ name: string, unit_id: string, display_name: string, quantity: float }
      */
     public function resolvePurchaseUnit(Product $product): array
@@ -161,19 +159,20 @@ class ProductUnitService
 
         if ($purchaseUnit) {
             return [
-                'name'         => $purchaseUnit->name,
-                'unit_id'      => $purchaseUnit->unit_id ?? $product->base_unit_id,
+                'name' => $purchaseUnit->name,
+                'unit_id' => $purchaseUnit->unit_id ?? $product->base_unit_id,
                 'display_name' => $purchaseUnit->name,
-                'quantity'     => (float) $purchaseUnit->quantity,
+                'quantity' => (float) $purchaseUnit->quantity,
             ];
         }
 
         $unitId = $product->base_unit_id ?? 'piece';
+
         return [
-            'name'         => $this->resolveDisplayUnit($unitId),
-            'unit_id'      => $unitId,
+            'name' => $this->resolveDisplayUnit($unitId),
+            'unit_id' => $unitId,
             'display_name' => $this->resolveDisplayUnit($unitId),
-            'quantity'     => 1,
+            'quantity' => 1,
         ];
     }
 
@@ -187,7 +186,62 @@ class ProductUnitService
             return null;
         }
         $key = strtolower(trim($unitId));
+
         return self::MEASUREMENT_TYPES[$key] ?? null;
+    }
+
+    /**
+     * Convert a quantity between two compatible units.
+     * Returns null when either unit is unknown or the dimensions differ.
+     */
+    public function convert(float $value, string $fromUnitId, string $toUnitId): ?float
+    {
+        $factor = $this->getConversionFactor($fromUnitId, $toUnitId);
+
+        return $factor === null ? null : $value * $factor;
+    }
+
+    /**
+     * Canonical unit options for composition templates.
+     *
+     * The legacy POS custom-unit ids (e.g. __custom_gram) are presentation
+     * aliases; composition rows persist the canonical unit id.
+     *
+     * @return array<int, array{id: string, label: string, factor: float, is_base: bool}>
+     */
+    public function getCompositionUnitOptions(string $baseUnitId): array
+    {
+        $aliases = [
+            '__custom_gram' => 'g',
+            '__custom_kg' => 'kg',
+            '__custom_ml' => 'ml',
+            '__custom_liter' => 'liter',
+            '__custom_cm' => 'cm',
+            '__custom_meter' => 'meter',
+        ];
+
+        $options = [];
+
+        foreach ($this->getMeasurementOptions($baseUnitId) as $option) {
+            $id = $aliases[$option['id']] ?? $option['id'];
+            $options[$id] = [
+                'id' => $id,
+                'label' => $this->resolveDisplayUnit($id),
+                'factor' => (float) $option['factor'],
+                'is_base' => $id === $baseUnitId,
+            ];
+        }
+
+        if (! isset($options[$baseUnitId])) {
+            $options[$baseUnitId] = [
+                'id' => $baseUnitId,
+                'label' => $this->resolveDisplayUnit($baseUnitId),
+                'factor' => 1.0,
+                'is_base' => true,
+            ];
+        }
+
+        return array_values($options);
     }
 
     /**
@@ -200,6 +254,7 @@ class ProductUnitService
             return false;
         }
         $packagingUnits = ['box', 'carton', 'bottle', 'strip', 'packet', 'sachet', 'roll', 'tray'];
+
         return in_array(strtolower(trim($unitId ?? '')), $packagingUnits, true);
     }
 
@@ -209,6 +264,7 @@ class ProductUnitService
     public function isMeasurementUnit(?string $unitId): bool
     {
         $type = $this->getMeasurementType($unitId);
+
         return $type === 'weight' || $type === 'volume' || $type === 'length';
     }
 
@@ -219,24 +275,17 @@ class ProductUnitService
     /**
      * Format a quantity with its unit for display.
      * E.g. formatQuantity(2.5, 'kg') → "2.5 Kilogram (kg)"
-     *
-     * @param float       $quantity
-     * @param string|null $unitId
-     * @return string
      */
     public function formatQuantity(float $quantity, ?string $unitId): string
     {
         $name = $this->resolveDisplayUnit($unitId);
-        return number_format($quantity, $quantity == floor($quantity) ? 0 : 2) . ' ' . $name;
+
+        return number_format($quantity, $quantity == floor($quantity) ? 0 : 2).' '.$name;
     }
 
     /**
      * Format stock quantity with pluralization.
      * E.g. formatStock(150, 'capsule') → "150 Capsules"
-     *
-     * @param float       $quantity
-     * @param string|null $unitId
-     * @return string
      */
     public function formatStock(float $quantity, ?string $unitId): string
     {
@@ -244,7 +293,8 @@ class ProductUnitService
         if ($quantity != 1 && $this->isPluralizable($unitId)) {
             $name = $this->pluralize($name);
         }
-        return number_format($quantity, $quantity == floor($quantity) ? 0 : 2) . ' ' . $name;
+
+        return number_format($quantity, $quantity == floor($quantity) ? 0 : 2).' '.$name;
     }
 
     // ─────────────────────────────────────────────────────────
@@ -256,13 +306,12 @@ class ProductUnitService
      * E.g. for 'kg': [Gram (g), factor: 0.001], [Kilogram (kg), factor: 1]
      * This is the SINGLE source — replaces all frontend duplicated branching.
      *
-     * @param string $baseUnitId
      * @return array{ id: string, label: string, factor: float }[]
      */
     public function getMeasurementOptions(string $baseUnitId): array
     {
         $type = $this->getMeasurementType($baseUnitId);
-        if (!$type) {
+        if (! $type) {
             return [];
         }
 
@@ -317,18 +366,19 @@ class ProductUnitService
             $options[] = [
                 'value' => $id,
                 'label' => $name,
-                'type'  => $type ?? 'count',
+                'type' => $type ?? 'count',
             ];
         }
         // Remove duplicates by label
         $seen = [];
         $unique = [];
         foreach ($options as $opt) {
-            if (!in_array($opt['label'], $seen, true)) {
+            if (! in_array($opt['label'], $seen, true)) {
                 $seen[] = $opt['label'];
                 $unique[] = $opt;
             }
         }
+
         return $unique;
     }
 
@@ -342,6 +392,9 @@ class ProductUnitService
      */
     private function getConversionFactor(string $fromUnit, string $toUnit): ?float
     {
+        $fromUnit = strtolower(trim($fromUnit));
+        $toUnit = strtolower(trim($toUnit));
+
         $fromFactor = self::BASE_FACTORS[$fromUnit] ?? null;
         $toFactor = self::BASE_FACTORS[$toUnit] ?? null;
         if ($fromFactor === null || $toFactor === null) {
@@ -353,6 +406,7 @@ class ProductUnitService
         if ($fromBase !== $toBase) {
             return null;
         }
+
         return $fromFactor / $toFactor;
     }
 
@@ -362,6 +416,7 @@ class ProductUnitService
     private function isPluralizable(?string $unitId): bool
     {
         $type = $this->getMeasurementType($unitId);
+
         // Count units are pluralizable (Capsules, Strips, Boxes)
         // Measurement units are not (kg, g, L, mL stay the same)
         return $type === 'count';
@@ -376,17 +431,18 @@ class ProductUnitService
         $lower = strtolower($name);
         if (in_array($lower, ['piece', 'capsule', 'tablet', 'bottle', 'strip', 'sachet',
             'packet', 'sheet', 'pouch', 'vial', 'ampoule', 'tub', 'jar'])) {
-            return $name . 's';
+            return $name.'s';
         }
         if (in_array($lower, ['box'])) {
-            return substr($name, 0, -1) . 'es';
+            return substr($name, 0, -1).'es';
         }
         if (in_array($lower, ['tray', 'bag'])) {
-            return $name . 's'; // trays, bags
+            return $name.'s'; // trays, bags
         }
         if (in_array($lower, ['carton', 'can', 'roll'])) {
-            return $name . 's'; // cartons, cans, rolls
+            return $name.'s'; // cartons, cans, rolls
         }
+
         // Non-pluralizable — measurement units stay the same
         return $name;
     }

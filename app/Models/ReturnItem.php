@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class ReturnItem extends Model
@@ -46,6 +47,14 @@ class ReturnItem extends Model
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
+    }
+
+    /**
+     * Recovered composition materials declared for this return line.
+     */
+    public function componentRecoveries(): HasMany
+    {
+        return $this->hasMany(ReturnComponentRecovery::class, 'return_item_id');
     }
 
     /**

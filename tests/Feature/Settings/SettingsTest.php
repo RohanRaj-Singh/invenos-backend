@@ -5,6 +5,7 @@ namespace Tests\Feature\Settings;
 use App\Domains\Settings\DTOs\UpdateSettingsData;
 use App\Domains\Settings\Services\SettingService;
 use App\Models\Setting;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -18,6 +19,17 @@ class SettingsTest extends TestCase
     {
         parent::setUp();
         $this->service = app(SettingService::class);
+    }
+
+    private function admin(): User
+    {
+        return User::create([
+            'name' => 'Admin',
+            'username' => 'admin-' . uniqid(),
+            'email' => 'admin-' . uniqid() . '@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+        ]);
     }
 
     public function test_defaults_returned_when_no_db_row(): void
@@ -37,7 +49,7 @@ class SettingsTest extends TestCase
 
         $this->assertEquals('Test Clinic', $result['business']['business_name']);
         $this->assertEquals('USD', $result['business']['currency']);
-        $this->assertDatabaseHas('settings', ['id' => 1]);
+        $this->assertDatabaseCount('settings', 1);
     }
 
     public function test_partial_update_merges_with_existing(): void
@@ -78,7 +90,7 @@ class SettingsTest extends TestCase
 
     public function test_http_update_endpoint_works(): void
     {
-        $response = $this->put('/settings', [
+        $response = $this->actingAs($this->admin())->put('/settings', [
             'business' => ['business_name' => 'HTTP Update Test'],
         ]);
 
@@ -91,7 +103,7 @@ class SettingsTest extends TestCase
 
     public function test_invalid_settings_rejected(): void
     {
-        $response = $this->put('/settings', [
+        $response = $this->actingAs($this->admin())->put('/settings', [
             'pos' => ['receipt_size' => 'invalid-size'],
         ]);
 

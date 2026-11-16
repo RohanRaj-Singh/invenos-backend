@@ -35,6 +35,8 @@ class SettingsController extends Controller
 
     public function update(UpdateSettingsRequest $request): RedirectResponse
     {
+        $this->authorize('settings.update');
+
         $data = UpdateSettingsData::fromRequest($request->validated());
         $this->settingService->update($data);
 

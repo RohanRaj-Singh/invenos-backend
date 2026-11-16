@@ -2,7 +2,9 @@
 
 namespace Database\Seeders;
 
-use App\Models\{User, Setting, ExpenseCategory};
+use App\Models\ExpenseCategory;
+use App\Models\Setting;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -25,6 +27,7 @@ class DatabaseSeeder extends Seeder
         $permissions = [
             'dashboard.view',
             'products.view', 'products.create', 'products.edit', 'products.delete',
+            'products.composition.view', 'products.composition.manage',
             'inventory.view', 'inventory.adjust_stock',
             'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.delete',
             'sales.view', 'sales.create', 'sales.edit', 'sales.delete',
@@ -44,7 +47,7 @@ class DatabaseSeeder extends Seeder
         $admin->assignRole('admin');
 
         // ─── 3. Settings ──────────────────────────────────────
-        if (!Setting::exists()) {
+        if (! Setting::exists()) {
             Setting::create(['values' => [
                 'business' => ['business_name' => 'Invenos', 'currency' => 'PKR', 'currency_symbol' => 'Rs.', 'timezone' => 'Asia/Karachi', 'date_format' => 'YYYY-MM-DD', 'time_format' => '12h', 'address' => '123 Main Street, Lahore', 'phone' => '+92 300 1234567', 'email' => 'info@invenos.com', 'website' => 'https://invenos.com', 'description' => 'Cloud Inventory & POS System'],
                 'pos' => ['default_customer' => 'Walk-in Customer', 'default_payment_method' => 'cash', 'receipt_size' => '80mm', 'auto_print_receipt' => false, 'show_product_images' => true, 'enable_hold_sales' => true, 'barcode_scanner_enabled' => true, 'keyboard_shortcuts_enabled' => true, 'confirm_before_deleting' => true, 'auto_focus_barcode' => false],

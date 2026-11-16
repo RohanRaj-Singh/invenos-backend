@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\InventoryTransaction;
 use App\Models\Product;
 use Illuminate\Console\Command;
 
@@ -18,7 +17,7 @@ class StockReconcileCommand extends Command
             ->leftJoin('inventory_transactions as it', 'it.product_id', '=', 'products.id')
             ->groupBy('products.id', 'products.name', 'products.base_unit_id', 'products.stock_quantity')
             ->selectRaw('products.id, products.name, products.base_unit_id, products.stock_quantity, COALESCE(SUM(it.quantity),0) as ledger_qty')
-            ->havingRaw('ABS(products.stock_quantity - COALESCE(SUM(it.quantity),0)) > 0.005')
+            ->havingRaw('ABS(products.stock_quantity - COALESCE(SUM(it.quantity),0)) > 0.000001')
             ->get();
 
         $negative = Product::where('stock_quantity', '<', 0)->count();
@@ -29,10 +28,10 @@ class StockReconcileCommand extends Command
                     ->where('inventory_transactions.reference', 'INITIAL');
             })->count();
 
-        $this->info('Products scanned: ' . Product::count());
-        $this->info('Mismatches: ' . $rows->count());
-        $this->info('Negative stock: ' . $negative);
-        $this->info('Stock without an INITIAL movement: ' . $noInitial);
+        $this->info('Products scanned: '.Product::count());
+        $this->info('Mismatches: '.$rows->count());
+        $this->info('Negative stock: '.$negative);
+        $this->info('Stock without an INITIAL movement: '.$noInitial);
 
         if ($rows->isNotEmpty()) {
             $this->table(
@@ -43,7 +42,7 @@ class StockReconcileCommand extends Command
                     $r->base_unit_id,
                     $r->stock_quantity,
                     $r->ledger_qty,
-                    round((float) $r->stock_quantity - (float) $r->ledger_qty, 2),
+                    round((float) $r->stock_quantity - (float) $r->ledger_qty, 6),
                 ])->all(),
             );
             $this->comment('Differences are reported, not corrected.');

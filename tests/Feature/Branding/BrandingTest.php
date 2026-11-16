@@ -4,12 +4,18 @@ namespace Tests\Feature\Branding;
 
 use App\Domains\Branding\Services\BrandingService;
 use App\Models\Setting;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class BrandingTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function admin(): User
+    {
+        return User::factory()->create(['role' => 'admin']);
+    }
 
     public function test_branding_returns_defaults_when_no_settings(): void
     {
@@ -36,8 +42,8 @@ class BrandingTest extends TestCase
     {
         Setting::create(['values' => ['business' => ['business_name' => 'Old Name', 'address' => '', 'phone' => '', 'email' => '', 'website' => '', 'business_logo' => '']]]);
 
-        $response = $this->put('/settings/branding', [
-            'business_name' => 'Updated Clinic',
+        $response = $this->actingAs($this->admin())->put('/settings', [
+            'business' => ['business_name' => 'Updated Clinic'],
         ]);
 
         $response->assertSessionHas('success');
@@ -45,9 +51,11 @@ class BrandingTest extends TestCase
         $this->assertEquals('Updated Clinic', $branding['business_name']);
     }
 
-    public function test_branding_requires_name(): void
+    public function test_business_settings_reject_an_invalid_email(): void
     {
-        $response = $this->put('/settings/branding', ['business_name' => '']);
-        $response->assertSessionHasErrors('business_name');
+        $response = $this->actingAs($this->admin())->put('/settings', [
+            'business' => ['email' => 'not-an-email'],
+        ]);
+        $response->assertSessionHasErrors('business.email');
     }
 }

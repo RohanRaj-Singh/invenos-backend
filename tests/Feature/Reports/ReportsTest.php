@@ -41,8 +41,8 @@ class ReportsTest extends TestCase
         Product::create(['name' => 'P2', 'sku' => 'B', 'base_unit_id' => 'piece', 'stock_quantity' => 2, 'status' => 'low-stock']);
 
         $report = app(ReportService::class)->getInventoryReport();
-        $this->assertEquals(2, $report['total_products']);
-        $this->assertEquals(1, $report['low_stock']);
+        $this->assertEquals(2, $report['summary']['total_products']);
+        $this->assertEquals(1, $report['summary']['low_stock']);
     }
 
     public function test_financial_report_has_keys(): void

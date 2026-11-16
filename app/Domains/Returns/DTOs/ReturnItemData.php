@@ -21,6 +21,14 @@ class ReturnItemData
         public readonly ?int $reasonId,
         public readonly ?string $notes,
         public readonly bool $restock = true,
+        /**
+         * Explicit recovered material for composition sale lines, keyed by the
+         * consumed composition run item:
+         * [['composition_run_item_id' => int, 'quantity' => float], ...]
+         *
+         * Empty by default — a commercial refund never restores components.
+         */
+        public readonly array $materialRecoveries = [],
     ) {}
 
     public static function fromArray(array $data): self
@@ -39,7 +47,44 @@ class ReturnItemData
             reasonId: isset($data['reason_id']) ? (int) $data['reason_id'] : null,
             notes: $data['notes'] ?? null,
             restock: filter_var($data['restock'] ?? true, FILTER_VALIDATE_BOOLEAN),
+            materialRecoveries: self::normalizeRecoveries($data['material_recoveries'] ?? []),
         );
+    }
+
+    /**
+     * Only the run-item id and the verified quantity are accepted from the
+     * client. Component identity, unit, cost and eligibility are resolved
+     * server-side from the immutable run snapshot.
+     *
+     * @return array<int, array{composition_run_item_id: int, quantity: float}>
+     */
+    private static function normalizeRecoveries(mixed $recoveries): array
+    {
+        if (! is_array($recoveries)) {
+            return [];
+        }
+
+        $normalized = [];
+
+        foreach ($recoveries as $recovery) {
+            if (! is_array($recovery)) {
+                continue;
+            }
+
+            $runItemId = (int) ($recovery['composition_run_item_id'] ?? 0);
+            $quantity = (float) ($recovery['quantity'] ?? $recovery['recovered_quantity'] ?? 0);
+
+            if ($runItemId <= 0) {
+                continue;
+            }
+
+            $normalized[] = [
+                'composition_run_item_id' => $runItemId,
+                'quantity' => $quantity,
+            ];
+        }
+
+        return $normalized;
     }
 
     public function toArray(): array
@@ -59,5 +104,15 @@ class ReturnItemData
             'notes' => $this->notes,
             'restock' => $this->restock,
         ];
+    }
+
+    /**
+     * Explicit recovered material rows declared for this line.
+     *
+     * @return array<int, array{composition_run_item_id: int, quantity: float}>
+     */
+    public function recoveries(): array
+    {
+        return $this->materialRecoveries;
     }
 }

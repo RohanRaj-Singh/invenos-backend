@@ -81,6 +81,7 @@ export function calculateInventorySummary(txns: InventoryTransaction[]): Invento
     totalAdjusted: Math.abs(byType.get('adjustment') || 0),
     totalDamaged: Math.abs(byType.get('damage') || 0),
     totalConsumed: Math.abs(byType.get('consumption') || 0),
+    totalProduced: byType.get('production') || 0,
     totalTransferred: Math.abs(byType.get('transfer') || 0),
     netMovement: txns.reduce((s, t) => s + Math.abs(t.quantity), 0),
     transactionCount: txns.length,
@@ -139,6 +140,7 @@ export const TRANSACTION_CONFIG: Record<TransactionType, TransactionDisplayConfi
   adjustment: { label:'Adjustment', color:'text-amber-600 dark:text-amber-400', bgClass:'bg-amber-50 dark:bg-amber-500/10', inflow: false },
   damage: { label:'Damage', color:'text-red-600 dark:text-red-400', bgClass:'bg-red-50 dark:bg-red-500/10', inflow: false },
   consumption: { label:'Consumption', color:'text-orange-600 dark:text-orange-400', bgClass:'bg-orange-50 dark:bg-orange-500/10', inflow: false },
+  production: { label:'Production', color:'text-teal-600 dark:text-teal-400', bgClass:'bg-teal-50 dark:bg-teal-500/10', inflow: true },
   transfer: { label:'Transfer', color:'text-cyan-600 dark:text-cyan-400', bgClass:'bg-cyan-50 dark:bg-cyan-500/10', inflow: false },
 }
 

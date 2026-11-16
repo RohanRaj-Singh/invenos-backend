@@ -107,7 +107,9 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
     if (!search.trim()) return availableProducts
     const q = search.toLowerCase()
     return availableProducts.filter((p: any) =>
-      p.name.toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q)
+      p.name.toLowerCase().includes(q) ||
+      (p.sku || '').toLowerCase().includes(q) ||
+      (p.barcode || '').toLowerCase().includes(q)
     )
   }, [search, availableProducts])
 
@@ -429,6 +431,11 @@ export default function AddMedicineDialog({ open, onClose, onAdd, selectedIds, e
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium truncate">{product.name}</span>
+                        {product.has_consumption_composition && (
+                          <Badge variant="outline" className="border-primary/30 px-1.5 py-0 text-[9px] text-primary">
+                            Formula
+                          </Badge>
+                        )}
                         {alreadySelected && <span className="size-3.5 text-primary shrink-0">✓</span>}
                       </div>
                       {/* Selling units row */}

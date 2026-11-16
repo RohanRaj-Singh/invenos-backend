@@ -2,17 +2,21 @@
 
 namespace App\Domains\Reports\Services;
 
+use App\Domains\Ledger\CashLedgerService;
 use App\Domains\Reports\DTOs\ReportFilters;
+use App\Domains\Reports\Support\DateRangeResolver;
 use App\Models\Expense;
-use App\Models\FinancialTransaction;
 use App\Models\PurchaseBill;
 use App\Models\ReturnModel;
 use App\Models\Sale;
-use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 
 class FinancialReportService
 {
+    public function __construct(
+        private readonly CogsCalculator $cogs,
+    ) {}
+
     /**
      * Business Financial Overview — not a true accounting report,
      * but a comprehensive view of where the business's money is.
@@ -41,18 +45,14 @@ class FinancialReportService
         $totalExpenses = Expense::whereBetween('date', [$from, $to])->sum('amount');
 
         // ─── Cost of Goods Sold ─���──────────────────────────────
-        $cogs = (float) DB::table('sale_items')
-            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
-            ->whereNull('sales.deleted_at')
-            ->whereBetween('sales.date', [$from, $to])
-            ->select(DB::raw('SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)) as cogs'))
-            ->value('cogs') ?? 0;
+        $costSummary = $this->cogs->summary($from, $to);
+        $cogs = round($costSummary['cogs'] - $this->cogs->returned($from, $to), 6);
 
         $grossProfit = $netSales - $cogs;
         $netProfit = $grossProfit - $totalExpenses;
 
         // ─── Cash (actual movements only; invoice memos excluded) ──
-        $cash = app(\App\Domains\Ledger\CashLedgerService::class)->summary($from, $to);
+        $cash = app(CashLedgerService::class)->summary($from, $to);
         $cashIn = $cash['total_in'];
         $cashOut = $cash['total_out'];
 
@@ -82,6 +82,13 @@ class FinancialReportService
                 'gross_profit' => round($grossProfit),
                 'net_profit' => round($netProfit),
                 'gross_margin_pct' => $netSales > 0 ? round(($grossProfit / $netSales) * 100, 1) : 0,
+                'cost_complete' => $costSummary['cost_complete'],
+                'simple_cost_complete' => $costSummary['simple_cost_complete'],
+                'uncosted_simple_items' => $costSummary['uncosted_simple_items'],
+                'uncosted_simple_lines' => $costSummary['uncosted_simple_lines'],
+                'uncosted_composition_items' => $costSummary['uncosted_composition_items'],
+                'uncosted_composition_lines' => $costSummary['uncosted_composition_lines'],
+                'composition_cost_basis' => $costSummary['composition_cost_basis'],
             ],
             'income' => [
                 'sales' => round($totalSales),
@@ -113,13 +120,13 @@ class FinancialReportService
      */
     public function cashFlow(ReportFilters $filters): array
     {
-        $range = \App\Domains\Reports\Support\DateRangeResolver::resolve(
+        $range = DateRangeResolver::resolve(
             $filters->preset,
             $filters->dateFrom,
             $filters->dateTo,
         );
 
-        $cash = app(\App\Domains\Ledger\CashLedgerService::class)
+        $cash = app(CashLedgerService::class)
             ->summary($range['from'], $range['to']);
 
         return [
@@ -142,14 +149,14 @@ class FinancialReportService
      */
     public function balanceSheet(ReportFilters $filters): array
     {
-        $range = \App\Domains\Reports\Support\DateRangeResolver::resolve(
+        $range = DateRangeResolver::resolve(
             $filters->preset,
             $filters->dateFrom,
             $filters->dateTo,
         );
         $asOf = $range['to'];
 
-        $cash = app(\App\Domains\Ledger\CashLedgerService::class)
+        $cash = app(CashLedgerService::class)
             ->summary('2000-01-01', $asOf)['closing_balance'];
 
         $inventory = (float) DB::table('products')
@@ -172,12 +179,8 @@ class FinancialReportService
         $salesUpTo = (float) Sale::whereNull('deleted_at')->where('date', '<=', $asOf)->sum('grand_total');
         $returnsUpTo = (float) ReturnModel::where('type', 'SALE')->where('status', 'completed')
             ->where('return_date', '<=', $asOf)->sum('grand_total');
-        $cogsUpTo = (float) DB::table('sale_items')
-            ->join('sales', 'sale_items.sale_id', '=', 'sales.id')
-            ->whereNull('sales.deleted_at')
-            ->where('sales.date', '<=', $asOf)
-            ->selectRaw('COALESCE(SUM(sale_items.base_quantity * COALESCE(sale_items.cost_price, 0)), 0) as v')
-            ->value('v');
+        $costSummaryUpTo = $this->cogs->summary('2000-01-01', $asOf);
+        $cogsUpTo = $costSummaryUpTo['cogs'];
         $expensesUpTo = (float) Expense::where('date', '<=', $asOf)->sum('amount');
 
         $retainedEarnings = ($salesUpTo - $returnsUpTo) - $cogsUpTo - $expensesUpTo;
@@ -210,6 +213,13 @@ class FinancialReportService
                 'liabilities_plus_equity' => round($totalLiabilities + $totalEquity),
                 'difference' => round($totalAssets - ($totalLiabilities + $totalEquity), 2),
                 'balanced' => abs($totalAssets - ($totalLiabilities + $totalEquity)) < 1.0,
+                'cost_complete' => $costSummaryUpTo['cost_complete'],
+                'simple_cost_complete' => $costSummaryUpTo['simple_cost_complete'],
+                'uncosted_simple_items' => $costSummaryUpTo['uncosted_simple_items'],
+                'uncosted_simple_lines' => $costSummaryUpTo['uncosted_simple_lines'],
+                'uncosted_composition_items' => $costSummaryUpTo['uncosted_composition_items'],
+                'uncosted_composition_lines' => $costSummaryUpTo['uncosted_composition_lines'],
+                'composition_cost_basis' => $costSummaryUpTo['composition_cost_basis'],
             ],
             'generated_at' => now()->toDateTimeString(),
         ];

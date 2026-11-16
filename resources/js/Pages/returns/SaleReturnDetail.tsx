@@ -2,6 +2,7 @@ import { router, Link, usePage } from '@inertiajs/react'
 import { ArrowLeft, RotateCcw, ExternalLink, Receipt, Printer } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { getSaleReturnByNumber } from '@/data/returns'
 import { getSaleById } from '@/data/sales'
 import { formatCurrency } from '@/data/dashboard'
@@ -14,7 +15,14 @@ const CONDITION_LABELS: Record<string, { label: string; cls: string }> = {
 }
 
 export default function SaleReturnDetailPage() {
-  const { url } = usePage();
+  const { url, props } = usePage();
+  const serverReturn = (props as { return?: ServerReturn }).return;
+
+  // Rendered by ReturnWorkflowController@show for canonical (server) returns.
+  if (serverReturn) {
+    return <ServerReturnDetail ret={serverReturn} canProcess={Boolean((props as { canProcess?: boolean }).canProcess)} />
+  }
+
   const id = url.split('/').pop() || '';
   const returnData = getSaleReturnByNumber(id || '')
 
@@ -218,6 +226,200 @@ function TimelineEntry({ icon, title, description, date, active }: {
         <div className="text-xs text-muted-foreground">{description}</div>
       </div>
       <div className="text-xs text-muted-foreground shrink-0">{date}</div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Canonical (server) sale return — commercial return and material
+// restoration are displayed as separate facts.
+// ─────────────────────────────────────────────────────────────
+
+interface ServerReturnItem {
+  id: number
+  product_name: string | null
+  packaging_name: string | null
+  quantity: number
+  base_quantity: number
+  unit_price: number
+  total: number
+  restock: boolean
+}
+
+interface ServerRecovery {
+  id: number
+  component_name: string | null
+  unit: string
+  recovered_quantity: number
+  wastage_quantity?: number | null
+  unit_cost: number | null
+  total_cost: number | null
+  restored_at: string | null
+  composition_run_id: number
+}
+
+interface ServerReturn {
+  id: number
+  return_number: string
+  type: string
+  status: string
+  return_date: string
+  subtotal: number
+  grand_total: number
+  refund_amount: number
+  refund_method: string | null
+  notes: string | null
+  created_by: string | null
+  reason_note: string | null
+  reference_id: number
+  items?: ServerReturnItem[]
+  component_recoveries?: ServerRecovery[]
+  contact?: { id: number; name: string } | null
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400',
+  completed: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400',
+  cancelled: 'bg-muted text-muted-foreground',
+  reversed: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400',
+}
+
+function ServerReturnDetail({ ret, canProcess }: { ret: ServerReturn; canProcess: boolean }) {
+  const items = ret.items ?? []
+  const recoveries = ret.component_recoveries ?? []
+  const restored = recoveries.filter((r) => r.restored_at !== null)
+  const totalUnits = items.reduce((sum, i) => sum + (i.quantity ?? 0), 0)
+
+  return (
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <button onClick={() => router.visit('/sales/returns')} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="size-4" />
+          <span>Back to Sale Returns</span>
+        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors">
+            <Printer className="size-3.5" />
+            Print
+          </button>
+          <Link href={`/sales/${ret.reference_id}`} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-medium hover:bg-muted transition-colors">
+            <ExternalLink className="size-3.5" />
+            View Original Sale
+          </Link>
+        </div>
+      </div>
+
+      <div className="flex items-start gap-4">
+        <div className="size-12 sm:size-14 rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-500/5 flex items-center justify-center shrink-0">
+          <RotateCcw className="size-6 sm:size-7 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">{ret.return_number}</h1>
+            <Badge variant="outline" className={cn('text-[10px] px-2 py-0 h-5 font-medium capitalize', STATUS_STYLES[ret.status])}>
+              {ret.status}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground flex-wrap">
+            <span className="font-medium text-foreground">{ret.contact?.name ?? 'Walk-in Customer'}</span>
+            <span>·</span>
+            <span>{ret.return_date}</span>
+            {ret.created_by && (<><span>·</span><span>{ret.created_by}</span></>)}
+          </div>
+          {ret.reason_note && <p className="text-xs text-muted-foreground mt-1">{ret.reason_note}</p>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard label="Items Returned" value={`${items.length}`} />
+        <StatCard label="Total Units" value={`${totalUnits}`} />
+        <StatCard label="Refund" value={formatCurrency(ret.refund_amount)} bold />
+        <StatCard label="Materials Restored" value={`${restored.length}`} positive={restored.length > 0} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Returned Items ({items.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-1">
+            <div className="grid grid-cols-12 gap-3 px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <div className="col-span-5">Product</div>
+              <div className="col-span-2 text-center">Returned</div>
+              <div className="col-span-2 text-right">Price</div>
+              <div className="col-span-3 text-right">Refund</div>
+            </div>
+            {items.map((item) => (
+              <div key={item.id} className="grid grid-cols-12 gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-sm">
+                <div className="col-span-5 font-medium text-foreground truncate">{item.product_name}</div>
+                <div className="col-span-2 text-center text-muted-foreground">{item.quantity} {item.packaging_name ?? 'units'}</div>
+                <div className="col-span-2 text-right text-muted-foreground">{formatCurrency(item.unit_price)}</div>
+                <div className="col-span-3 text-right font-semibold text-amber-600 dark:text-amber-400">{formatCurrency(item.total)}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-border space-y-1">
+            <div className="flex justify-between text-sm px-3">
+              <span className="text-muted-foreground">Credit note</span>
+              <span>{formatCurrency(ret.grand_total)}</span>
+            </div>
+            <div className="flex justify-between text-sm font-semibold px-3">
+              <span>Refund ({ret.refund_method ?? 'cash'})</span>
+              <span className="text-amber-600 dark:text-amber-400">{formatCurrency(ret.refund_amount)}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Material Restoration</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {recoveries.length === 0 ? (
+            <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+              No material was restored. A commercial refund never returns ingredients to inventory.
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <div className="grid grid-cols-12 gap-3 px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                <div className="col-span-5">Component</div>
+                <div className="col-span-2 text-center">Recovered</div>
+                <div className="col-span-2 text-right">Cost</div>
+                <div className="col-span-3 text-right">Status</div>
+              </div>
+              {recoveries.map((recovery) => (
+                <div key={recovery.id} className="grid grid-cols-12 gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-sm">
+                  <div className="col-span-5 font-medium text-foreground truncate">{recovery.component_name ?? 'Component'}</div>
+                  <div className="col-span-2 text-center text-muted-foreground">{recovery.recovered_quantity} {recovery.unit}</div>
+                  <div className="col-span-2 text-right text-muted-foreground">
+                    {recovery.total_cost === null ? '—' : formatCurrency(recovery.total_cost)}
+                  </div>
+                  <div className="col-span-3 text-right">
+                    <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-5', recovery.restored_at ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-muted text-muted-foreground')}>
+                      {recovery.restored_at ? 'Restored' : 'Pending'}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {canProcess && (
+        <div className="flex items-center gap-2 justify-end">
+          {ret.status === 'pending' && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => router.post(`/returns/${ret.id}/cancel`)}>Cancel</Button>
+              <Button size="sm" onClick={() => router.post(`/returns/${ret.id}/complete`)}>Complete Return</Button>
+            </>
+          )}
+          {ret.status === 'completed' && (
+            <Button variant="outline" size="sm" onClick={() => router.post(`/returns/${ret.id}/reverse`)}>Reverse Return</Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

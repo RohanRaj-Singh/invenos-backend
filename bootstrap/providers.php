@@ -6,5 +6,4 @@ use App\Providers\LifecycleServiceProvider;
 return [
     AppServiceProvider::class,
     LifecycleServiceProvider::class,
-    TransactionServiceProvider::class,
 ];

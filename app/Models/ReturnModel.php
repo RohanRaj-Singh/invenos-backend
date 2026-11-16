@@ -15,7 +15,7 @@ class ReturnModel extends Model
     protected $table = 'returns';
 
     protected $fillable = [
-        'return_number', 'type',
+        'return_number', 'idempotency_key', 'type',
         'reference_type', 'reference_id',
         'contact_id', 'return_date', 'reason_id', 'reason_note',
         'status',
@@ -49,6 +49,14 @@ class ReturnModel extends Model
     public function items(): HasMany
     {
         return $this->hasMany(ReturnItem::class, 'return_id');
+    }
+
+    /**
+     * Recovered composition materials declared by this return.
+     */
+    public function componentRecoveries(): HasMany
+    {
+        return $this->hasMany(ReturnComponentRecovery::class, 'return_id');
     }
 
     /**

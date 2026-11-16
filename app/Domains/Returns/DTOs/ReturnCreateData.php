@@ -2,6 +2,8 @@
 
 namespace App\Domains\Returns\DTOs;
 
+use App\Domains\Transactions\DTOs\TransactionData;
+
 /**
  * Input data for creating or previewing a return.
  */
@@ -28,6 +30,7 @@ class ReturnCreateData
         public readonly string $refundMethod,
         public readonly ?string $notes,
         public readonly ?string $createdBy,
+        public readonly ?string $idempotencyKey = null,
     ) {}
 
     public static function fromRequest(array $data): self
@@ -55,17 +58,20 @@ class ReturnCreateData
             refundMethod: $data['refund_method'] ?? 'cash',
             notes: $data['notes'] ?? null,
             createdBy: $data['created_by'] ?? auth()->user()?->name ?? 'System',
+            idempotencyKey: isset($data['idempotency_key']) && trim((string) $data['idempotency_key']) !== ''
+                ? trim((string) $data['idempotency_key'])
+                : null,
         );
     }
 
     /**
      * Convert to TransactionData for the TransactionEngine.
      */
-    public function toTransactionData(string $documentNumber): \App\Domains\Transactions\DTOs\TransactionData
+    public function toTransactionData(string $documentNumber): TransactionData
     {
         $itemData = array_map(fn ($i) => $i->toArray(), $this->items);
 
-        return new \App\Domains\Transactions\DTOs\TransactionData(
+        return new TransactionData(
             documentNumber: $documentNumber,
             typeKey: 'return',
             contactId: $this->contactId,

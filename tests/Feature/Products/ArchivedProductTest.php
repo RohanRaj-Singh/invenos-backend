@@ -3,11 +3,11 @@
 namespace Tests\Feature\Products;
 
 use App\Domains\Inventory\Services\InventoryService;
+use App\Domains\Returns\DTOs\ReturnCreateData;
+use App\Domains\Returns\DTOs\ReturnItemData;
+use App\Domains\Returns\Services\ReturnService;
 use App\Domains\Sales\DTOs\CreateSaleData;
-use App\Domains\Sales\DTOs\CreateSaleReturnData;
 use App\Domains\Sales\DTOs\SaleItemData;
-use App\Domains\Sales\DTOs\SaleReturnItemData;
-use App\Domains\Sales\Services\SaleReturnService;
 use App\Domains\Sales\Services\SaleService;
 use App\Models\Contact;
 use App\Models\Product;
@@ -227,15 +227,49 @@ class ArchivedProductTest extends TestCase
             'unit_price' => 100, 'total' => 200, 'category' => 'General',
         ]);
 
+        $saleItem = $sale->items()->firstOrFail();
+
         $this->archive($product);
 
-        $return = app(SaleReturnService::class)->create(new CreateSaleReturnData(
-            'RET-' . uniqid(), '2026-07-27', $sale->id,
-            [new SaleReturnItemData($product->id, $product->name, 1, 100, 100, 'defective', 'damaged', true)],
-            100, 'cash', 'Test'
+        $return = app(ReturnService::class)->createReturn(new ReturnCreateData(
+            type: 'SALE',
+            referenceId: $sale->id,
+            referenceType: 'sale',
+            returnNumber: '',
+            returnDate: '2026-07-27',
+            contactId: $customer->id,
+            contactName: $customer->name,
+            reasonId: null,
+            reasonNote: null,
+            items: [
+                new ReturnItemData(
+                    referenceItemId: $saleItem->id,
+                    referenceItemType: 'sale_item',
+                    productId: $product->id,
+                    productName: $product->name,
+                    sellingUnitId: null,
+                    packagingName: 'Piece',
+                    quantity: 1,
+                    baseQuantity: 1,
+                    unitPrice: 100,
+                    total: 100,
+                    reasonId: null,
+                    notes: null,
+                    restock: true,
+                ),
+            ],
+            subtotal: 100,
+            discount: 0,
+            grandTotal: 100,
+            refundAmount: 100,
+            refundMethod: 'cash',
+            notes: null,
+            createdBy: 'Test',
         ));
 
-        $this->assertDatabaseHas('sales', ['id' => $return->id]);
+        app(ReturnService::class)->completeReturn($return->id);
+
+        $this->assertDatabaseHas('returns', ['id' => $return->id, 'status' => 'completed']);
         $this->assertEquals(21, $product->fresh()->stock_quantity);
     }
 }

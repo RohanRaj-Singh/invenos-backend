@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { router, usePage } from '@inertiajs/react'
 import { toast } from 'sonner'
-import { Save, ChevronDown, ChevronUp, Search, Plus, Settings2, Beaker } from 'lucide-react'
+import { Save, ChevronDown, ChevronUp, Search, Plus, Settings2, Beaker, Package } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -19,6 +19,7 @@ interface ProductFormProps {
   categories: any[]
   product?: Record<string, any> | null
   generatedSku?: string
+  initialSetupFormula?: boolean
 }
 
 // ── Helpers ──
@@ -38,8 +39,13 @@ function generateSku(category: string, sequence: number): string {
 
 // ── Main Component ──
 
-export default function ProductForm({ mode, categories = [], product = null, generatedSku }: ProductFormProps) {
+export default function ProductForm({ mode, categories = [], product = null, generatedSku, initialSetupFormula = false }: ProductFormProps) {
   const isEditing = mode === 'edit'
+
+  // ── Creation kind: a physical product holds stock; a formula is an
+  // ingredient template. Composition needs a saved product id, so the formula
+  // itself is authored on the product page after this save.
+  const [formulaMode, setFormulaMode] = useState(initialSetupFormula)
 
   // ── Quick Entry state ──
   const [name, setName] = useState(product?.name || '')
@@ -57,7 +63,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     product?.low_stock_threshold != null ? String(product.low_stock_threshold) : ''
   )
   const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? true)
-  const [description, setDescription] = useState('')
+  const [description, setDescription] = useState(product?.description || '')
 
   // ── Unit relationships ──
   const [relationships, setRelationships] = useState<UnitRelation[]>([])
@@ -142,7 +148,9 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   // ── Build payload ──
 
   const buildPayload = useCallback(() => {
-    const stockQty = parseFloat(openingStock) || 0
+    // A formula is an ingredient template: it never starts with stock, holds no
+    // opening quantity and is never replenished through a purchase.
+    const stockQty = formulaMode ? 0 : (parseFloat(openingStock) || 0)
     const catId = categories.find((c: any) => c.name === category)?.id || null
 
     let packaging: any[] = []
@@ -174,42 +182,51 @@ export default function ProductForm({ mode, categories = [], product = null, gen
       category_id: catId,
       barcode: barcode || '',
       description: description || '',
-      product_type: 'simple',
       base_unit_id: baseUnitId,
       selling_units: sellingUnitsOut,
-      packaging,
-      stock_quantity: stockQty,
+      // Never send an empty packaging set on edit: relationships are not
+      // hydrated into this form, and an empty array would delete existing
+      // packaging and derived selling units. It becomes explicit only when
+      // the user actually adds a relationship.
+      ...((!isEditing || relationships.length > 0) ? { packaging } : {}),
       low_stock_threshold: lowStockThreshold.trim() !== '' && Number.isFinite(Number(lowStockThreshold))
         ? Number(lowStockThreshold)
         : (isEditing ? (product?.low_stock_threshold ?? 0) : 0),
       default_purchase_cost: purchaseCost ? parseFloat(purchaseCost) : null,
       allow_negative_stock: allowNegativeStock,
-      status: stockQty === 0 ? 'out-of-stock' : 'in-stock',
+      ...(isEditing ? {} : {
+        stock_quantity: stockQty,
+        status: stockQty === 0 ? 'out-of-stock' : 'in-stock',
+      }),
     }
   }, [
     name, sku, skuSequence, category, barcode, description, baseUnitId,
     relationships, sellingPrice,
     openingStock, lowStockThreshold, purchaseCost, allowNegativeStock,
-    isEditing, product, categories,
+    isEditing, product, categories, formulaMode,
   ])
 
   // ── Save handlers ──
 
   const validate = useCallback((): boolean => {
     if (!name.trim()) {
-      toast.error('Product name is required')
+      toast.error(`${formulaMode ? 'Formula' : 'Product'} name is required`)
       nameInputRef.current?.focus()
       return false
     }
     return true
-  }, [name])
+  }, [name, formulaMode])
 
   const handleSave = useCallback((stay = false) => {
     if (!validate()) return
 
     setSaving(true)
     const payload = buildPayload()
-    const fullPayload: Record<string, any> = { ...payload, _stay: stay }
+    const fullPayload: Record<string, any> = {
+      ...payload,
+      _stay: stay,
+      ...(!isEditing && !stay && formulaMode ? { _setup_formula: true } : {}),
+    }
     if (product?.id) {
       fullPayload._product_id = product.id
     }
@@ -240,7 +257,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
         setSaving(false)
       },
     })
-  }, [name, isEditing, baseUnitId, validate, buildPayload, product?.id])
+  }, [name, isEditing, formulaMode, baseUnitId, validate, buildPayload, product?.id])
 
   // ── Keyboard ──
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -267,7 +284,11 @@ export default function ProductForm({ mode, categories = [], product = null, gen
             </p>
           )}
           <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
-            {isEditing ? 'Edit Product' : 'Add Product'}
+            {isEditing
+              ? 'Edit Product'
+              : formulaMode
+                ? 'Add Formula'
+                : 'Add Product'}
           </h1>
         </div>
         <div className="flex items-center gap-2">
@@ -279,6 +300,55 @@ export default function ProductForm({ mode, categories = [], product = null, gen
           </Button>
         </div>
       </div>
+
+      {/* ── What are you creating? ──
+          A physical product is bought and stocked. A formula is a reusable
+          ingredient template that consumes ingredients at sale time and holds no
+          stock of its own. Choosing up front keeps the two workflows distinct. */}
+      {!isEditing && (
+        <div>
+          <p className="mb-2 text-xs font-medium text-foreground">What are you creating?</p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {([
+              {
+                id: 'product',
+                label: 'Physical Product',
+                hint: 'Bought, stocked and sold from inventory.',
+                icon: Package,
+              },
+              {
+                id: 'formula',
+                label: 'Formula',
+                hint: 'A recipe of ingredients, sold as one line.',
+                icon: Beaker,
+              },
+            ] as const).map((option) => {
+              const Icon = option.icon
+              const active = (option.id === 'formula') === formulaMode
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setFormulaMode(option.id === 'formula')}
+                  aria-pressed={active}
+                  className={cn(
+                    'flex items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
+                    active
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                      : 'border-border hover:border-muted-foreground/30',
+                  )}
+                >
+                  <Icon className={cn('mt-0.5 size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">{option.label}</span>
+                    <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{option.hint}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Form ── */}
       <Card>
@@ -356,6 +426,41 @@ export default function ProductForm({ mode, categories = [], product = null, gen
             />
           </div>
 
+          {/* Formula hand-off. Composition needs a saved product id, so it is
+              authored on the product detail page rather than half-created here. */}
+          <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-3.5">
+            <div className="flex items-start gap-2.5">
+              <Beaker className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">
+                  {formulaMode ? 'Formula ingredients' : 'Formula / composition'}
+                </p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                  {isEditing
+                    ? 'The formula is managed separately from product details. Editing this form does not change ingredients or stock.'
+                    : formulaMode
+                      ? 'Save this formula, then add its ingredients and default quantities on the Formula tab. A formula holds no stock of its own.'
+                      : 'Save the product first, then optionally define a formula for it on the product page.'}
+                </p>
+                {isEditing ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2 gap-1.5"
+                    onClick={() => router.visit(`/inventory/product/${product?.id}?tab=composition`)}
+                  >
+                    <Beaker className="size-3.5" /> Open Formula tab
+                  </Button>
+                ) : formulaMode ? (
+                  <p className="mt-2 text-[11px] font-medium text-primary">
+                    You will be taken to the Formula tab right after saving.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
           <SectionDivider />
 
           {/* ════════════════════════════════════════════════ */}
@@ -390,41 +495,46 @@ export default function ProductForm({ mode, categories = [], product = null, gen
                   </div>
                 </div>
 
-                {/* ── Stock ── */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-foreground">
-                      {isEditing ? 'Current Stock' : 'Starting Quantity'}
-                    </label>
-                    {isEditing ? (
-                      <div className="w-full h-10 px-3 rounded-lg border border-input bg-muted text-sm leading-10">
-                        {formatStock(product?.stock_quantity ?? 0, resolveUnitDisplay(baseUnitId))}
+                {/* ── Stock. A formula is not stocked, so these would imply a
+                       balance that no sale or purchase ever moves. ── */}
+                {!formulaMode && (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-foreground">
+                          {isEditing ? 'Current Stock' : 'Starting Quantity'}
+                        </label>
+                        {isEditing ? (
+                          <div className="w-full h-10 px-3 rounded-lg border border-input bg-muted text-sm leading-10">
+                            {formatStock(product?.stock_quantity ?? 0, resolveUnitDisplay(baseUnitId))}
+                          </div>
+                        ) : (
+                          <input type="number" placeholder="0" value={openingStock}
+                            onChange={(e) => setOpeningStock(e.target.value)}
+                            className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
+                        )}
                       </div>
-                    ) : (
-                      <input type="number" placeholder="0" value={openingStock}
-                        onChange={(e) => setOpeningStock(e.target.value)}
-                        className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-medium text-foreground">Minimum Stock</label>
-                    <input type="number" placeholder="10" value={lowStockThreshold}
-                      onChange={(e) => setLowStockThreshold(e.target.value)}
-                      className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
-                  </div>
-                </div>
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-medium text-foreground">Minimum Stock</label>
+                        <input type="number" placeholder="10" value={lowStockThreshold}
+                          onChange={(e) => setLowStockThreshold(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" />
+                      </div>
+                    </div>
 
-                {/* ── Negative Stock ── */}
-                <SectionDivider />
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={allowNegativeStock}
-                    onChange={(e) => setAllowNegativeStock(e.target.checked)}
-                    className="size-4 rounded border-gray-300 accent-primary focus:ring-primary/30" />
-                  <div>
-                    <span className="text-sm font-medium text-foreground">Allow Negative Stock</span>
-                    <p className="text-[11px] text-muted-foreground">Permit sales when stock is insufficient.</p>
-                  </div>
-                </label>
+                    {/* ── Negative Stock ── */}
+                    <SectionDivider />
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input type="checkbox" checked={allowNegativeStock}
+                        onChange={(e) => setAllowNegativeStock(e.target.checked)}
+                        className="size-4 rounded border-gray-300 accent-primary focus:ring-primary/30" />
+                      <div>
+                        <span className="text-sm font-medium text-foreground">Allow Negative Stock</span>
+                        <p className="text-[11px] text-muted-foreground">Permit sales when stock is insufficient.</p>
+                      </div>
+                    </label>
+                  </>
+                )}
 
                 {/* ── Description ── */}
                 <SectionDivider />

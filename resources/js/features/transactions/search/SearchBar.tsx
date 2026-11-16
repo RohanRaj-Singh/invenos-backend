@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback } from 'react'
-import { Search, X, Plus } from 'lucide-react'
+import { Search, X, Plus, Beaker } from 'lucide-react'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -8,6 +8,8 @@ interface SearchResult {
   name: string
   sku: string
   sellingUnits?: { name: string; salePrice?: number }[]
+  /** Server-derived: sale consumes components rather than parent stock. */
+  hasConsumptionComposition?: boolean
 }
 
 interface SearchBarProps {
@@ -124,8 +126,15 @@ export function TransactionSearchBar({
                 <Plus className="size-4" />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-foreground truncate">
-                  {product.name}
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {product.name}
+                  </span>
+                  {product.hasConsumptionComposition && (
+                    <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+                      <Beaker className="size-2.5" /> Formula
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-muted-foreground">
                   {product.sku}

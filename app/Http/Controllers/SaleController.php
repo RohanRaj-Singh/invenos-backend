@@ -2,12 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\Domains\Composition\Exceptions\InsufficientComponentStockException;
 use App\Domains\Sales\DTOs\CreateSaleData;
 use App\Domains\Sales\Services\SaleService;
 use App\Domains\Settings\Services\SettingService;
 use App\Http\Requests\Sales\CreateSaleRequest;
+use App\Models\Contact;
+use App\Models\Product;
+use App\Models\ProductComposition;
+use App\Models\Sale;
 use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -52,8 +58,27 @@ class SaleController extends Controller
 
     public function create(): Response
     {
-        $products = \App\Models\Product::with('sellingUnits')->orderBy('name')->get()->toArray();
-        $customers = \App\Models\Contact::whereJsonContains('roles', 'customer')->orderBy('name')->get(['id', 'name', 'phone'])->toArray();
+        $products = Product::query()
+            ->with('sellingUnits')
+            ->addSelect([
+                'consumption_composition_version' => ProductComposition::query()
+                    ->select('version')
+                    ->whereColumn('product_id', 'products.id')
+                    ->where('kind', ProductComposition::KIND_CONSUMPTION)
+                    ->where('is_active', true)
+                    ->orderByDesc('version')
+                    ->limit(1),
+            ])
+            ->withExists([
+                'compositions as has_consumption_composition' => fn ($query) => $query
+                    ->where('kind', ProductComposition::KIND_CONSUMPTION)
+                    ->where('is_active', true),
+            ])
+            ->orderBy('name')
+            ->get()
+            ->toArray();
+
+        $customers = Contact::whereJsonContains('roles', 'customer')->orderBy('name')->get(['id', 'name', 'phone'])->toArray();
 
         return Inertia::render('pos/SaleBill', [
             'products' => $products,
@@ -63,9 +88,18 @@ class SaleController extends Controller
 
     public function store(CreateSaleRequest $request): RedirectResponse
     {
+        $this->authorize('sales.create');
+
         $data = CreateSaleData::fromRequest($request->validated());
         $bypassStock = $request->boolean('bypass_stock_check', false);
-        $sale = $this->saleService->create($data, $bypassStock);
+
+        try {
+            $sale = $this->saleService->create($data, $bypassStock);
+        } catch (InsufficientComponentStockException $exception) {
+            throw ValidationException::withMessages([
+                'items' => $exception->getMessage(),
+            ]);
+        }
 
         return redirect()->route('sales.show', $sale->id)
             ->with('success', 'Sale created successfully.');
@@ -74,8 +108,9 @@ class SaleController extends Controller
     public function show(int $id): Response
     {
         $sale = $this->saleService->get($id);
+
         return Inertia::render('sales/SaleDetail', [
-            'sale' => $sale->toArray(),
+            'sale' => $this->saleForDisplay($sale),
         ]);
     }
 
@@ -85,20 +120,58 @@ class SaleController extends Controller
         $settings = app(SettingService::class)->get();
 
         return Inertia::render('sales/SalePrint', [
-            'sale' => $sale->toArray(),
+            'sale' => $this->saleForDisplay($sale),
             'settings' => $settings,
         ]);
+    }
+
+    /**
+     * Customer-facing sale payload: keeps immutable component quantities for
+     * staff visibility but never exposes internal run costs.
+     */
+    private function saleForDisplay(Sale $sale): array
+    {
+        $data = $sale->toArray();
+        $runs = $data['composition_runs'] ?? [];
+
+        $data['composition_runs'] = array_map(function (array $run): array {
+            $snapshot = $run['template_snapshot'] ?? [];
+
+            return [
+                'id' => $run['id'],
+                'run_number' => $run['run_number'],
+                'sale_item_id' => $run['sale_item_id'] ?? null,
+                'status' => $run['status'],
+                'reference' => $run['reference'] ?? null,
+                'formula_name' => $snapshot['name'] ?? null,
+                'template_version' => $run['template_version'] ?? null,
+                'quantity' => $run['quantity'] ?? null,
+                'output_quantity' => $run['output_quantity'] ?? null,
+                'items' => array_map(fn (array $item): array => [
+                    'id' => $item['id'],
+                    'component_name' => $item['component_name'] ?? null,
+                    'component_sku' => $item['component_sku'] ?? null,
+                    'unit' => $item['unit'],
+                    'actual_quantity' => $item['actual_quantity'],
+                    'template_quantity' => $item['template_quantity'],
+                    'cost_basis' => $item['cost_basis'] ?? null,
+                ], $run['items'] ?? []),
+            ];
+        }, $runs);
+
+        return $data;
     }
 
     public function destroy(int $id): RedirectResponse
     {
         $this->authorize('lifecycle.delete-sales');
 
-        $sale = \App\Models\Sale::findOrFail($id);
+        $sale = Sale::findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
             $this->lifecycle->delete($sale, $reason, auth()->user());
+
             return redirect()->route('sales.index')
                 ->with('success', "Sale {$sale->invoice_number} deleted. Inventory reversed.");
         } catch (\Throwable $e) {

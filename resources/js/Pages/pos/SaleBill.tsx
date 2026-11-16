@@ -98,6 +98,7 @@ import { TransactionSummary } from '@/features/transactions/cart/CartSummary'
 import { PaymentPanel } from '@/features/transactions/payment/PaymentPanel'
 import { ConfirmTransactionDialog } from '@/features/transactions/dialogs/ConfirmDialog'
 import { ConfirmClearDialog } from '@/features/transactions/dialogs/ClearConfirmDialog'
+import FormulaCustomizationDialog, { type FormulaCustomizationResult } from '@/features/composition/FormulaCustomizationDialog'
 import type { Product, CartItem, POSCustomer, PaymentMethod, SellingUnit } from '@/types'
 
 // ─── Constants ───
@@ -180,6 +181,8 @@ export default function SaleBillPage() {
     stockQuantity: p.stock_quantity || 0,
     lowStockThreshold: p.low_stock_threshold || 10,
     baseUnitId: String(p.base_unit_id || ''),
+    hasConsumptionComposition: Boolean(p.has_consumption_composition),
+    consumptionCompositionVersion: p.consumption_composition_version ?? null,
     purchaseConfig: p.purchase_units?.[0] ? {
       name: p.purchase_units[0].name || 'Pack',
       cost: p.purchase_units[0].cost || 0,
@@ -192,12 +195,23 @@ export default function SaleBillPage() {
     if (!query.trim()) return []
     const q = query.toLowerCase()
     return posProducts.filter(
-      (p: any) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q)
+      (p: any) =>
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        String(p.barcode || '').toLowerCase().includes(q)
     ).slice(0, 8)
   }
 
   // ── Core state ──
   const [cart, setCart] = useState<CartItem[]>([])
+  const [formulaProduct, setFormulaProduct] = useState<any | null>(null)
+  const [formulaInitial, setFormulaInitial] = useState<{
+    compositionId?: number
+    version?: number
+    overrides?: NonNullable<CartItem['formulaOverrides']>
+    optionalItemIds?: number[]
+    details?: NonNullable<CartItem['formulaDetails']>
+  } | null>(null)
   const [customer, setCustomer] = useState<POSCustomer>(DEFAULT_CUSTOMER)
   const [discount, setDiscount] = useState(0)
   const [discountInput, setDiscountInput] = useState('')
@@ -230,6 +244,7 @@ export default function SaleBillPage() {
   const restoredRef = useRef(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   // ── Cart persistence ──
   useEffect(() => {
@@ -345,6 +360,7 @@ export default function SaleBillPage() {
           unitPrice: defaultSU.salePrice,
           total: defaultSU.salePrice,
           category: product.category,
+          hasConsumptionComposition: Boolean((product as any).hasConsumptionComposition),
         },
       ]
     })
@@ -352,6 +368,82 @@ export default function SaleBillPage() {
     setShowResults(false)
     searchInputRef.current?.focus()
   }, [])
+
+  const openFormulaCustomization = useCallback((product: any, existing?: CartItem | null) => {
+    setFormulaProduct(product)
+    setFormulaInitial(existing ? {
+      compositionId: existing.formulaCompositionId,
+      version: existing.formulaVersion,
+      overrides: existing.formulaOverrides,
+      optionalItemIds: existing.formulaOptionalItemIds,
+      details: existing.formulaDetails,
+    } : null)
+    setShowResults(false)
+  }, [])
+
+  const handleSelectProduct = useCallback((product: any) => {
+    const fullProduct = posProducts.find((p: any) => String(p.id) === String(product.id)) ?? product
+
+    if (fullProduct.hasConsumptionComposition) {
+      openFormulaCustomization(fullProduct)
+      return
+    }
+
+    addToCart(fullProduct as Product)
+  }, [posProducts, openFormulaCustomization, addToCart])
+
+  const confirmFormulaCustomization = useCallback((customization: FormulaCustomizationResult) => {
+    const product = formulaProduct
+    if (!product) return
+
+    const defaultSU = getDefaultSellingUnit(product)
+    if (!defaultSU) {
+      toast.error('This formula has no selling unit.')
+      return
+    }
+
+    const formulaFields = {
+      hasConsumptionComposition: true,
+      formulaCompositionId: customization.compositionId,
+      formulaVersion: customization.version,
+      formulaOverrides: customization.overrides,
+      formulaOptionalItemIds: customization.optionalItemIds,
+      formulaDetails: customization.details,
+    }
+
+    setCart((prev) => {
+      const existing = prev.find((item) => item.productId === product.id)
+      if (existing) {
+        return prev.map((item) => item.productId === product.id
+          ? { ...item, ...formulaFields }
+          : item)
+      }
+
+      return [
+        ...prev,
+        {
+          id: `ci-${Date.now()}`,
+          productId: product.id,
+          name: product.name,
+          sellingUnitId: defaultSU.id,
+          packagingName: defaultSU.name,
+          packagingQuantity: 1,
+          baseUnitQuantity: defaultSU.quantity,
+          baseQuantity: defaultSU.quantity,
+          unitPrice: defaultSU.salePrice,
+          total: defaultSU.salePrice,
+          category: product.category,
+          ...formulaFields,
+        },
+      ]
+    })
+
+    setFormulaProduct(null)
+    setFormulaInitial(null)
+    setSearch('')
+    setShowResults(false)
+    searchInputRef.current?.focus()
+  }, [formulaProduct])
 
   const updateQuantity = useCallback((productId: string, delta: number) => {
     setCart((prev) =>
@@ -580,7 +672,7 @@ export default function SaleBillPage() {
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchResults.length > 0) {
       e.preventDefault()
-      addToCart(searchResults[0])
+      handleSelectProduct(searchResults[0])
     }
     if (e.key === 'Escape') {
       setSearch('')
@@ -608,6 +700,7 @@ export default function SaleBillPage() {
     setPriceOverrides({})
     setDiscountPcts({})
     setAmountPaid('')
+    idempotencyKeyRef.current = null
     clearCartState()
     setTimeout(() => searchInputRef.current?.focus(), 100)
   }, [])
@@ -632,21 +725,49 @@ export default function SaleBillPage() {
   const handleRecordSale = useCallback(() => {
     if (cart.length === 0) return
 
-    // Pre-submit stock check: find any items with insufficient stock
+    // Pre-submit stock check: find any items with insufficient stock.
     const lowStock = cart.filter((item) => {
       const product = posProducts.find((p: any) => String(p.id) === String(item.productId))
+      if (product?.hasConsumptionComposition) return false
       if (product?.track_inventory === false) return false
       const baseQty = item.packagingQuantity * item.baseUnitQuantity
       const stock = product?.stockQuantity ?? 0
       return stock < baseQty
     })
 
-    if (lowStock.length > 0) {
-      const msg = lowStock.map((item) => {
+    // Formula lines do not move their own stock, so the parent check above
+    // skips them. Their ingredients can still be short: report those the same
+    // way, but only where the server policy permits negative stock — where it
+    // does not, the server must reject and the cashier must not be invited to
+    // proceed.
+    const shortIngredients = cart.flatMap((item) => {
+      const details = item.formulaDetails ?? []
+      const units = item.packagingQuantity || 1
+
+      return details
+        .filter((line) => line.allows_negative_stock)
+        .map((line) => {
+          const available = line.available_stock
+          if (available === null || available === undefined) return null
+
+          const required = line.actual_quantity * units
+          if (available >= required) return null
+
+          return `${line.name}: ${Number(required.toFixed(6)).toLocaleString()} ${line.unit} required, ${Number(available.toFixed(6)).toLocaleString()} in stock`
+        })
+        .filter((message): message is string => message !== null)
+    })
+
+    const messages = [
+      ...lowStock.map((item) => {
         const product = posProducts.find((p: any) => String(p.id) === String(item.productId))
         return `${item.name}: ${item.packagingQuantity} ${item.packagingName} requested, ${product?.stockQuantity ?? 0} in stock`
-      }).join('\n')
-      setLowStockItems(msg)
+      }),
+      ...shortIngredients,
+    ]
+
+    if (messages.length > 0) {
+      setLowStockItems(messages.join('\n'))
       setShowLowStockWarning(true)
       return
     }
@@ -658,8 +779,15 @@ export default function SaleBillPage() {
     const today = new Date().toISOString().split('T')[0]
     const paid = parseFloat(amountPaid) || grandTotal
     const paymentStatus = paid >= grandTotal ? 'paid' : paid > 0 ? 'partial' : 'unpaid'
+    const idempotencyKey = idempotencyKeyRef.current ?? (
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    )
+    idempotencyKeyRef.current = idempotencyKey
 
     router.post('/sales', {
+      idempotency_key: idempotencyKey,
       items: computedCart.map((i: any) => ({
         product_id: i.productId,
         quantity: i.packagingQuantity,
@@ -669,6 +797,9 @@ export default function SaleBillPage() {
         base_unit_quantity: i.baseUnitQuantity,
         unit_price: i.unitPrice,
         total: i.total,
+        formula_composition_id: i.formulaCompositionId ?? null,
+        formula_overrides: i.formulaOverrides ?? [],
+        formula_optional_item_ids: i.formulaOptionalItemIds ?? [],
       })),
       customer_id: customer.id === 'cust-0' ? null : customer.id,
       discount,
@@ -782,10 +913,7 @@ export default function SaleBillPage() {
         showResults={showResults}
         onShowResultsChange={setShowResults}
         results={searchResults}
-        onAddProduct={(product) => {
-          const fullProduct = posProducts.find((p: any) => String(p.id) === String(product.id))
-          if (fullProduct) addToCart(fullProduct as any)
-        }}
+        onAddProduct={handleSelectProduct}
         placeholder="Search product by name, SKU, or barcode... (Enter to add)"
       />
 
@@ -849,9 +977,27 @@ export default function SaleBillPage() {
                         <div className="text-sm font-medium text-foreground truncate">
                           {item.name}
                         </div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {product?.sku}
+                        <div className="flex items-center gap-1.5">
+                          <div className="text-[10px] text-muted-foreground">
+                            {product?.sku}
+                          </div>
+                          {(item.hasConsumptionComposition || product?.hasConsumptionComposition) && product && (
+                            <button
+                              type="button"
+                              onClick={() => openFormulaCustomization(product, item)}
+                              title="Review or change ingredient quantities per formula unit. Component stock is checked by the server at checkout."
+                              className="text-[9px] font-semibold uppercase tracking-wide rounded-full bg-primary/10 text-primary px-1.5 py-0.5 hover:bg-primary/20"
+                            >
+                              Formula · edit
+                            </button>
+                          )}
                         </div>
+                        {(item.formulaDetails?.length ?? 0) > 0 && (
+                          <div className="mt-0.5 truncate text-[9px] text-muted-foreground">
+                            {item.formulaDetails!.map((line) => `${line.name} ${line.actual_quantity}${line.unit}`).join(' · ')} per formula
+                            {item.packagingQuantity > 1 && ` · ${item.packagingQuantity} formulas`}
+                          </div>
+                        )}
                       </Td>
                       <Td>
                         <select
@@ -1053,9 +1199,16 @@ export default function SaleBillPage() {
                 sellingUnits: sus.map((su: any) => ({ id: su.id, name: su.name })),
                 customUnits: custom.map((cu: any) => ({ id: cu.id, label: cu.label })),
                 selectedUnitId: c.sellingUnitId,
+                isConsumption: c.hasConsumptionComposition === true || prod?.hasConsumptionComposition === true,
+                formulaDetails: c.formulaDetails,
               }
             })}
             costLabel="Price"
+            onFormulaClick={(id) => {
+              const item = cart.find((c: any) => (c.id || c.productId) === id)
+              const product = item ? posProducts.find((p: any) => p.id === item.productId) : null
+              if (item && product) openFormulaCustomization(product, item)
+            }}
             onUpdateQty={(id, delta) => {
               const item = cart.find((c: any) => (c.id || c.productId) === id)
               if (item) updateQuantity(item.productId, delta)
@@ -1160,7 +1313,9 @@ export default function SaleBillPage() {
             <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3">
               <pre className="text-xs whitespace-pre-wrap font-sans text-amber-800 dark:text-amber-300">{lowStockItems}</pre>
             </div>
-            <p className="text-xs text-muted-foreground">Stock will go negative for these items. Do you want to proceed?</p>
+            <p className="text-xs text-muted-foreground">
+              Stock will go negative for these items, including formula ingredients. Do you want to proceed?
+            </p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setShowLowStockWarning(false)} className="flex-1">Cancel</Button>
               <Button onClick={() => { setShowLowStockWarning(false); doSubmitSale(true) }} className="flex-1 gap-1.5">
@@ -1190,6 +1345,19 @@ export default function SaleBillPage() {
         ]}
         confirmLabel="Complete Sale"
       />
+
+      {formulaProduct && (
+        <FormulaCustomizationDialog
+          open={Boolean(formulaProduct)}
+          product={{ id: formulaProduct.id, name: formulaProduct.name }}
+          initial={formulaInitial}
+          onClose={() => {
+            setFormulaProduct(null)
+            setFormulaInitial(null)
+          }}
+          onConfirm={confirmFormulaCustomization}
+        />
+      )}
     </div>
   )
 }

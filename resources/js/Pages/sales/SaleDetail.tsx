@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { usePermission } from '@/features/auth/PermissionGuard'
 import { router, Link, usePage } from '@inertiajs/react'
-import { ArrowLeft, Receipt, ExternalLink, Banknote, RotateCcw, Printer, Trash2, ChevronRight, FileText } from 'lucide-react'
+import { ArrowLeft, Receipt, ExternalLink, Banknote, RotateCcw, Printer, Trash2, ChevronRight, FileText, Beaker } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +21,29 @@ interface BackendSaleItem {
   total: number
 }
 
+interface BackendCompositionRunItem {
+  id: number
+  component_name: string | null
+  component_sku: string | null
+  unit: string
+  actual_quantity: number
+  template_quantity: number
+  cost_basis: string | null
+}
+
+interface BackendCompositionRun {
+  id: number
+  run_number: string
+  sale_item_id: number | null
+  status: string
+  reference: string | null
+  formula_name: string | null
+  template_version: number | null
+  quantity: number | null
+  output_quantity: number | null
+  items: BackendCompositionRunItem[]
+}
+
 interface BackendSale {
   id: number
   invoice_number: string
@@ -36,6 +59,7 @@ interface BackendSale {
   payment_status: string
   notes: string | null
   items: BackendSaleItem[]
+  composition_runs?: BackendCompositionRun[]
   customer: { id: number; name: string } | null
   created_by: string | null
   created_at: string
@@ -234,6 +258,66 @@ export default function SaleDetailPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Internal composition consumption — immutable run snapshots, no costs */}
+        {(sale.composition_runs?.length ?? 0) > 0 && (
+          <div className="px-4 sm:px-6 mt-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Beaker className="size-4 text-primary" /> Formula ingredients consumed
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {sale.composition_runs!.map((run) => {
+                  const quantity = Number(run.quantity || 1)
+                  const perFormula = (value: number) => quantity > 0 ? value / quantity : value
+                  const saleItemName = sale.items.find((item) => item.id === run.sale_item_id)?.product_name
+
+                  return (
+                    <div key={run.id} className="rounded-lg border border-border/70 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-medium">{run.formula_name || saleItemName || 'Formula'}</div>
+                          <code className="text-[10px] font-mono text-muted-foreground">
+                            {run.run_number}{run.template_version ? ` · v${run.template_version}` : ''}
+                          </code>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="tabular-nums">×{quantity}</Badge>
+                          <Badge variant={run.status === 'completed' ? 'secondary' : 'outline'} className="capitalize">
+                            {run.status}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {run.items.map((item) => (
+                          <div key={item.id} className="flex items-center justify-between gap-3 text-xs">
+                            <span className="truncate text-muted-foreground">
+                              {item.component_name || `Ingredient #${item.id}`}
+                            </span>
+                            <span className="shrink-0 tabular-nums">
+                              {Number(perFormula(Number(item.actual_quantity)).toFixed(6)).toLocaleString()} {item.unit} / formula
+                              {quantity !== 1 && (
+                                <span className="ml-1 text-muted-foreground">
+                                  ({Number(item.actual_quantity).toLocaleString()} total)
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+                <p className="text-[10px] text-muted-foreground">
+                  Internal staff view from the immutable sale snapshot. Ingredients are not commercial
+                  sale lines and are never printed on customer receipts.
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Notes */}
         {sale.notes && (

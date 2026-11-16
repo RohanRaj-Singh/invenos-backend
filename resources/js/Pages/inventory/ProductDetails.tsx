@@ -14,6 +14,7 @@ import {
   Archive,
   ArchiveRestore,
   AlertTriangle,
+  Beaker,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,6 +29,7 @@ import { formatCurrency, formatDate } from '@/lib/format'
 import { formatStock } from '@/lib/product-unit-display'
 import { cn } from '@/lib/utils'
 import { useLifecycleAction } from '@/features/shared/use-lifecycle-action'
+import ProductCompositionPanel from '@/features/composition/ProductCompositionPanel'
 
 interface BackendProduct {
   id: number
@@ -45,6 +47,8 @@ interface BackendProduct {
   last_purchase_cost: number | null
   default_purchase_cost: number | null
   selling_units: any[]
+  has_consumption_composition?: boolean
+  has_assembly_composition?: boolean
   archived_at?: string | null
   archive_reason?: string | null
   created_at: string
@@ -56,7 +60,10 @@ export default function ProductDetailsPage() {
   const id = url.split('/').pop() || ''
   const authUser = (props as any).auth?.user ?? null
   const isAdmin = authUser?.role === 'admin'
-  const [activeSection, setActiveSection] = useState('overview')
+  const [activeSection, setActiveSection] = useState(() => {
+    const query = url.split('?')[1] || ''
+    return new URLSearchParams(query).get('tab') === 'composition' ? 'composition' : 'overview'
+  })
   const [showAdjust, setShowAdjust] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showArchiveDialog, setShowArchiveDialog] = useState(false)
@@ -66,19 +73,30 @@ export default function ProductDetailsPage() {
 
   const lifecycle = ((props as any)?.lifecycle ?? { can_delete: true, delete_blocker: null }) as {
     can_delete: boolean
-    delete_blocker: { sales: number; purchases: number } | null
+    delete_blocker: { sales: number; purchases: number; compositions?: number } | null
     can_archive?: boolean
     can_unarchive?: boolean
   }
   const canDelete = lifecycle.can_delete !== false
   const blocker = lifecycle.delete_blocker
   const isArchived = !!product?.archived_at
+  const hasConsumptionFormula = Boolean(product?.has_consumption_composition)
+  const hasAssemblyFormula = Boolean(product?.has_assembly_composition)
+  const isConsumptionOnly = hasConsumptionFormula && !hasAssemblyFormula
+  const compositionLabel = hasConsumptionFormula && hasAssemblyFormula
+    ? 'Consumption + assembly formulas'
+    : hasConsumptionFormula
+      ? 'Consumption formula'
+      : hasAssemblyFormula
+        ? 'Assembly formula'
+        : 'Simple / stocked'
   const canArchive = lifecycle.can_archive !== false
   const canUnarchive = lifecycle.can_unarchive === true
 
   const usageParts: string[] = []
   if (blocker?.sales) usageParts.push(`${blocker.sales} sale${blocker.sales === 1 ? '' : 's'}`)
   if (blocker?.purchases) usageParts.push(`${blocker.purchases} purchase${blocker.purchases === 1 ? '' : 's'}`)
+  if (blocker?.compositions) usageParts.push(`${blocker.compositions} composition record${blocker.compositions === 1 ? '' : 's'}`)
   const usageText = usageParts.join(' and ')
 
   const costPrice = product ? (product.last_purchase_cost ?? product.default_purchase_cost ?? 0) : 0
@@ -130,8 +148,17 @@ export default function ProductDetailsPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Package className="size-5 text-primary" />
             <h1 className="text-xl font-semibold tracking-tight">{product.name}</h1>
-            <StockBadge status={product.status as StockStatus} />
+            {!isConsumptionOnly && <StockBadge status={product.status as StockStatus} />}
             <CompletionBadge product={product as any} size="sm" />
+            {(hasConsumptionFormula || hasAssemblyFormula) && (
+              <Badge variant="outline" className="gap-1 border-primary/30 text-primary">
+                <Beaker className="size-3" />
+                {hasAssemblyFormula ? 'Assembly' : 'Formula'}
+              </Badge>
+            )}
+            {isConsumptionOnly && (
+              <Badge variant="secondary" className="gap-1">Not stocked</Badge>
+            )}
             {isArchived && <ArchivedBadge />}
           </div>
           <p className="text-sm text-muted-foreground mt-1">
@@ -144,7 +171,7 @@ export default function ProductDetailsPage() {
 
         {/* Actions — only the ones that apply to this product's current state. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowAdjust(true)} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setShowAdjust(true)} disabled={isConsumptionOnly} title={isConsumptionOnly ? 'This formula holds no stock of its own. Adjust ingredient stock instead.' : undefined} className="gap-1.5 disabled:opacity-50">
             <Plus className="size-3.5" />
             Adjust Stock
           </Button>
@@ -197,7 +224,9 @@ export default function ProductDetailsPage() {
       <div className="flex items-center gap-0.5 border-b border-border overflow-x-auto">
         {[
           { id: 'overview', label: 'Overview', icon: Package },
-          { id: 'transactions', label: 'Stock Movements', icon: BarChart3 },
+          { id: 'composition', label: 'Formula', icon: Beaker },
+          // A formula-only record has no own ledger to browse.
+          ...(isConsumptionOnly ? [] : [{ id: 'transactions', label: 'Stock Movements', icon: BarChart3 }]),
           { id: 'purchases', label: 'Purchase History', icon: ShoppingCart },
           { id: 'sales', label: 'Sales History', icon: ClipboardList },
         ].map((tab) => {
@@ -233,9 +262,9 @@ export default function ProductDetailsPage() {
                 <span className="text-muted-foreground">Category</span>
                 <span className="font-medium">{product.category?.name || '—'}</span>
               </div>
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between gap-3 text-sm">
                 <span className="text-muted-foreground">Product Type</span>
-                <span className="font-medium capitalize">{product.product_type || 'Simple'}</span>
+                <span className="text-right font-medium">{compositionLabel}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Track Inventory</span>
@@ -258,24 +287,41 @@ export default function ProductDetailsPage() {
               <CardTitle className="text-sm">Stock</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Current Stock</span>
-                <span className={cn(
-                  'font-bold text-lg',
-                  product.stock_quantity === 0 ? 'text-red-500' :
-                  product.status === 'low-stock' ? 'text-amber-500' : 'text-emerald-600'
-                )}>
-                  {formatStock(product.stock_quantity, unitName)}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Low Stock Threshold</span>
-                <span className="font-medium">{product.low_stock_threshold}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Stock Value</span>
-                <span className="font-semibold">{formatCurrency(product.stock_quantity * (costPrice || 0))}</span>
-              </div>
+              {isConsumptionOnly ? (
+                <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-3 text-xs leading-relaxed text-muted-foreground">
+                  <p className="font-medium text-foreground">Consumption formula product</p>
+                  <p className="mt-1">
+                    This product is not sold from its own stock. Its components are consumed when the
+                    product is sold, and component availability is checked at checkout.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Current Stock</span>
+                    <span className={cn(
+                      'font-bold text-lg',
+                      product.stock_quantity === 0 ? 'text-red-500' :
+                      product.status === 'low-stock' ? 'text-amber-500' : 'text-emerald-600'
+                    )}>
+                      {formatStock(product.stock_quantity, unitName)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Low Stock Threshold</span>
+                    <span className="font-medium">{product.low_stock_threshold}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Stock Value</span>
+                    <span className="font-semibold">{formatCurrency(product.stock_quantity * (costPrice || 0))}</span>
+                  </div>
+                </>
+              )}
+              {hasConsumptionFormula && hasAssemblyFormula && (
+                <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                  The Formula tab manages the ingredient formula used at POS. A retained assembly formula is not part of this workflow.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -388,6 +434,21 @@ export default function ProductDetailsPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Formula / composition tab */}
+      {activeSection === 'composition' && (
+        <ProductCompositionPanel
+          product={{
+            id: product.id,
+            name: product.name,
+            base_unit_id: product.base_unit_id || 'piece',
+            base_unit_name: (product as any).base_unit_name || undefined,
+            default_price: sellingPrice || undefined,
+          }}
+          canManage={isAdmin && !isArchived}
+          canViewCost={isAdmin}
+        />
       )}
 
       {/* Adjust Stock Dialog */}

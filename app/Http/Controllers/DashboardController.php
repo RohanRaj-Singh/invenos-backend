@@ -45,6 +45,8 @@ class DashboardController extends Controller
 
     public function metrics(): \Illuminate\Http\JsonResponse
     {
+        $this->authorize('dashboard.view');
+
         return response()->json($this->dashboardReport->today());
     }
 }

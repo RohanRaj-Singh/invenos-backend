@@ -8,12 +8,24 @@ use App\Domains\Purchasing\Services\PurchaseService;
 use App\Models\Contact;
 use App\Models\Product;
 use App\Models\InventoryTransaction;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class PurchasesTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function admin(): User
+    {
+        return User::create([
+            'name' => 'Admin',
+            'username' => 'admin-' . uniqid(),
+            'email' => 'admin-' . uniqid() . '@example.com',
+            'password' => 'password',
+            'role' => 'admin',
+        ]);
+    }
 
     public function test_can_create_purchase(): void
     {
@@ -115,7 +127,7 @@ class PurchasesTest extends TestCase
         $supplier = Contact::create(["type" => "organization", "roles" => ["supplier"], "name" => "HTTP Supplier", "phone" => "0300-5555555"]);
         $product = Product::create(["name" => "HTTP Product", "sku" => "HTP-" . uniqid(), "base_unit_id" => "piece"]);
 
-        $response = $this->post("/purchases", [
+        $response = $this->actingAs($this->admin())->post("/purchases", [
             "invoice_ref" => "PUR-HTTP-" . uniqid(),
             "supplier_id" => $supplier->id,
             "date" => "2026-07-26",

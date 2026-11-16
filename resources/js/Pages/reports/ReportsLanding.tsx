@@ -26,6 +26,8 @@ const CATEGORIES: { name: string; color: string; reports: ReportCard[] }[] = [
     name: 'Sales Reports', color: 'text-blue-600 dark:text-blue-400',
     reports: [
       { id: 'sales', title: 'Sales Report', description: 'All sales transactions with totals and summaries', icon: <ShoppingCart className="size-5" />, href: '/reports/sales', color: 'text-blue-600' },
+      { id: 'sales-by-customer', title: 'Sales by Customer', description: 'Revenue grouped by customer', icon: <Users className="size-5" />, href: '/reports/sales/by-customer', color: 'text-blue-600' },
+      { id: 'top-products', title: 'Top Products', description: 'Best selling products in the period', icon: <TrendingUp className="size-5" />, href: '/reports/sales/top-products', color: 'text-blue-600' },
     ],
   },
   {
@@ -38,6 +40,10 @@ const CATEGORIES: { name: string; color: string; reports: ReportCard[] }[] = [
     name: 'Inventory Reports', color: 'text-sky-600 dark:text-sky-400',
     reports: [
       { id: 'stock', title: 'Stock Report', description: 'Current inventory levels, values and stock status', icon: <Package className="size-5" />, href: '/reports/stock', color: 'text-sky-600' },
+      { id: 'stock-ledger', title: 'Stock Ledger', description: 'Every inventory movement with running balance', icon: <BookOpen className="size-5" />, href: '/reports/stock/ledger', color: 'text-sky-600' },
+      { id: 'low-stock', title: 'Low Stock', description: 'Products at or below their minimum stock level', icon: <Package className="size-5" />, href: '/reports/stock/low-stock', color: 'text-amber-600' },
+      { id: 'product-ledger', title: 'Product Ledger', description: 'Full transaction history for one product', icon: <ClipboardList className="size-5" />, href: '/reports/product-ledger', color: 'text-sky-600' },
+      { id: 'ingredient-usage', title: 'Ingredient Usage', description: 'Actual formula ingredient consumption and recovery', icon: <Package className="size-5" />, href: '/reports/component-usage', color: 'text-emerald-600' },
     ],
   },
   {

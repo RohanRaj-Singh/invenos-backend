@@ -6,6 +6,10 @@ use App\Domains\Purchasing\DTOs\CreatePurchaseData;
 use App\Domains\Purchasing\Services\PurchaseService;
 use App\Domains\Settings\Services\SettingService;
 use App\Http\Requests\Purchases\CreatePurchaseRequest;
+use App\Models\Contact;
+use App\Models\Product;
+use App\Models\ProductComposition;
+use App\Models\PurchaseBill;
 use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -49,8 +53,19 @@ class PurchaseController extends Controller
 
     public function create(): Response
     {
-        $products = \App\Models\Product::with('sellingUnits')->orderBy('name')->get()->toArray();
-        $suppliers = \App\Models\Contact::whereJsonContains('roles', 'supplier')->orderBy('name')->get(['id', 'name', 'phone', 'email', 'current_balance', 'opening_balance', 'balance_type'])->toArray();
+        // A formula holds no stock of its own, so it cannot be received on a
+        // purchase bill; buying it would create phantom inventory.
+        $products = Product::excludingFormulaOnly()
+            ->with('sellingUnits')
+            ->withExists([
+                'compositions as has_consumption_composition' => fn ($composition) => $composition
+                    ->where('kind', ProductComposition::KIND_CONSUMPTION)
+                    ->where('is_active', true),
+            ])
+            ->orderBy('name')
+            ->get()
+            ->toArray();
+        $suppliers = Contact::whereJsonContains('roles', 'supplier')->orderBy('name')->get(['id', 'name', 'phone', 'email', 'current_balance', 'opening_balance', 'balance_type'])->toArray();
 
         return Inertia::render('purchases/PurchaseBill', [
             'products' => $products,
@@ -60,6 +75,8 @@ class PurchaseController extends Controller
 
     public function store(CreatePurchaseRequest $request): RedirectResponse
     {
+        $this->authorize('purchases.create');
+
         $data = CreatePurchaseData::fromRequest($request->validated());
         $purchase = $this->purchaseService->create($data);
 
@@ -94,11 +111,12 @@ class PurchaseController extends Controller
     {
         $this->authorize('lifecycle.delete-purchases');
 
-        $purchase = \App\Models\PurchaseBill::findOrFail($id);
+        $purchase = PurchaseBill::findOrFail($id);
         $reason = request('reason', 'No reason provided');
 
         try {
             $this->lifecycle->delete($purchase, $reason, auth()->user());
+
             return redirect()->route('purchases.index')
                 ->with('success', "Purchase {$purchase->invoice_ref} deleted. Inventory reversed.");
         } catch (\Throwable $e) {

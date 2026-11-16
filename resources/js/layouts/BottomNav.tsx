@@ -12,6 +12,7 @@ import {
   Receipt,
   Wallet,
   Settings2,
+  FlaskConical,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -34,6 +35,7 @@ const iconMap: Record<string, LucideIcon> = {
 }
 
 const moreItems = [
+  { label: 'Formulas', href: '/inventory?composition=formula', icon: FlaskConical },
   { label: 'Payments', href: '/payments', icon: CreditCard },
   { label: 'Expenses', href: '/expenses', icon: Wallet },
   { label: 'Contacts', href: '/contacts', icon: Users },

@@ -47,6 +47,7 @@ export default function InventoryTimeline({ transactions }: InventoryTimelinePro
         <SummaryBadge label="Sold" amount={Math.abs(transactions.filter(t => t.type === 'sale').reduce((s, t) => s + t.quantity, 0))} type="sale" />
         <SummaryBadge label="Damaged" amount={Math.abs(transactions.filter(t => t.type === 'damage').reduce((s, t) => s + t.quantity, 0))} type="damage" />
         <SummaryBadge label="Consumed" amount={Math.abs(transactions.filter(t => t.type === 'consumption').reduce((s, t) => s + t.quantity, 0))} type="consumption" />
+        <SummaryBadge label="Produced" amount={transactions.filter(t => t.type === 'production').reduce((s, t) => s + t.quantity, 0)} type="production" />
         <SummaryBadge label="Returned" amount={transactions.filter(t => t.type === 'return').reduce((s, t) => s + t.quantity, 0)} type="return" />
         <SummaryBadge label="Adjusted" amount={Math.abs(transactions.filter(t => t.type === 'adjustment').reduce((s, t) => s + t.quantity, 0))} type="adjustment" />
       </div>

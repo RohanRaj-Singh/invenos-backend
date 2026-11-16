@@ -6,15 +6,19 @@ use App\Contracts\Lifecycle\Deletable;
 use App\Contracts\Lifecycle\PermanentDeletable;
 use App\Contracts\Lifecycle\Restorable;
 use App\Domains\Inventory\Services\InventoryService;
+use App\Domains\Ledger\CashLedgerService;
+use App\Models\CompositionRun;
 use App\Models\FinancialTransaction;
+use App\Models\InventoryTransaction;
+use App\Models\ReturnModel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User;
 
-class SalePolicy implements Deletable, Restorable, PermanentDeletable
+class SalePolicy implements Deletable, PermanentDeletable, Restorable
 {
     public function __construct(
         private readonly InventoryService $inventoryService,
-        private readonly \App\Domains\Ledger\CashLedgerService $ledger,
+        private readonly CashLedgerService $ledger,
     ) {}
 
     // ─── Delete ────────────────────────────────────────────────
@@ -23,17 +27,36 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
     {
         throw_if($record->trashed(), 'Sale is already deleted.');
 
-        $hasReturns = \App\Models\InventoryTransaction::where('reference', $record->invoice_number)
+        throw_if(
+            CompositionRun::query()
+                ->where('source_type', 'sale')
+                ->where('source_id', $record->id)
+                ->exists(),
+            'Cannot delete: this sale consumed composition components. Reversal is handled in P6.'
+        );
+
+        $hasReturns = InventoryTransaction::where('reference', $record->invoice_number)
             ->where('type', 'sale-return')
             ->exists();
 
         throw_if($hasReturns,
             'Cannot delete: a return references this sale. Delete the return first.');
+
+        // A composition return performs no parent stock movement, so the ledger
+        // check above cannot see it. Ask the return documents directly.
+        $hasReturnDocuments = ReturnModel::query()
+            ->where('reference_type', 'sale')
+            ->where('reference_id', $record->id)
+            ->whereIn('status', ['pending', 'completed'])
+            ->exists();
+
+        throw_if($hasReturnDocuments,
+            'Cannot delete: this sale has return records. Reverse or cancel them first.');
     }
 
     public function previewImpact(Model $record): array
     {
-        $items = $record->items->map(fn($i) => [
+        $items = $record->items->map(fn ($i) => [
             'product' => $i->product_name,
             'qty_added_back' => $i->base_quantity,
         ]);
@@ -43,7 +66,7 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
             'name' => $record->invoice_number,
             'inventory' => $items,
             'customer_balance' => $record->customer
-                ? "Reduced by Rs. " . number_format($record->grand_total)
+                ? 'Reduced by Rs. '.number_format($record->grand_total)
                 : null,
             'records' => [
                 "Invoice {$record->invoice_number} moved to Recycle Bin.",
@@ -63,7 +86,7 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
             $this->inventoryService->recordAdjustment(
                 productId: $item->product_id,
                 quantity: $item->base_quantity,
-                reference: 'REV-' . $record->invoice_number,
+                reference: 'REV-'.$record->invoice_number,
                 notes: 'Reversal of deleted sale',
                 user: $user->name ?? 'System',
             );
@@ -93,7 +116,7 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
 
     public function canRestore(Model $record): void
     {
-        throw_if(!$record->trashed(), 'Sale is not deleted.');
+        throw_if(! $record->trashed(), 'Sale is not deleted.');
     }
 
     public function executeRestore(Model $record, User $user): void
@@ -103,7 +126,7 @@ class SalePolicy implements Deletable, Restorable, PermanentDeletable
             $this->inventoryService->recordAdjustment(
                 productId: $item->product_id,
                 quantity: -$item->base_quantity,
-                reference: 'RESTORE-' . $record->invoice_number,
+                reference: 'RESTORE-'.$record->invoice_number,
                 notes: 'Restore of deleted sale',
                 user: $user->name ?? 'System',
             );

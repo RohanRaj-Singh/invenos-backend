@@ -20,6 +20,10 @@ export interface MobileCartItem {
   customUnits?: { id: string; label: string }[]
   /** Currently selected unit id (optional) */
   selectedUnitId?: string
+  /** True when this line consumes a composition at checkout. */
+  isConsumption?: boolean
+  /** Runtime ingredient quantities per formula unit (display only). */
+  formulaDetails?: { name: string; actual_quantity: number; unit: string }[]
 }
 
 interface MobileCartListProps {
@@ -33,6 +37,8 @@ interface MobileCartListProps {
   onPriceChange?: (itemId: string, newPrice: number) => void
   /** Step value for the editable quantity (default "1") */
   qtyStep?: string
+  /** Opens runtime formula customization for a line. */
+  onFormulaClick?: (itemId: string) => void
 }
 
 /** Inline quantity editor (tap-to-edit, supports custom values like 0.2 for kg) */
@@ -109,7 +115,7 @@ function EditablePrice({ value, onSave, label }: { value: number; onSave: (v: nu
  * Supports inline quantity stepper, unit selector, editable price, and delete.
  */
 export default function MobileCartList({
-  items, costLabel = 'Cost', onUpdateQty, onRemove, onChangeUnit, onPriceChange, qtyStep = '1',
+  items, costLabel = 'Cost', onUpdateQty, onRemove, onChangeUnit, onPriceChange, qtyStep = '1', onFormulaClick,
 }: MobileCartListProps) {
   if (items.length === 0) return null
 
@@ -127,11 +133,37 @@ export default function MobileCartList({
                   <Package className="size-4 text-muted-foreground" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-foreground leading-snug break-words">{item.productName}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <div className="text-sm font-semibold text-foreground leading-snug break-words">{item.productName}</div>
+                    {item.isConsumption && (
+                      onFormulaClick ? (
+                        <button
+                          type="button"
+                          onClick={() => onFormulaClick(item.id)}
+                          title="Review or change ingredient quantities per formula unit."
+                          className="text-[9px] font-semibold uppercase tracking-wide rounded-full bg-primary/10 text-primary px-1.5 py-0.5"
+                        >
+                          Formula · edit
+                        </button>
+                      ) : (
+                        <span
+                          title="This line consumes formula components. Component stock is checked by the server at checkout; the parent product is not deducted."
+                          className="text-[9px] font-semibold uppercase tracking-wide rounded-full bg-primary/10 text-primary px-1.5 py-0.5"
+                        >
+                          Formula
+                        </span>
+                      )
+                    )}
+                  </div>
                   <div className="text-[11px] text-muted-foreground mt-0.5">
                     {item.packName || 'Unit'}
                     {item.baseUnitName && ` · ${item.baseUnitName}`}
                   </div>
+                  {(item.formulaDetails?.length ?? 0) > 0 && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground line-clamp-2">
+                      {item.formulaDetails!.map((line) => `${line.name} ${line.actual_quantity}${line.unit}`).join(' · ')} per formula
+                    </div>
+                  )}
                 </div>
               </div>
               <button

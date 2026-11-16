@@ -1,5 +1,5 @@
 import { usePage } from '@inertiajs/react'
-import { TrendingUp } from 'lucide-react'
+import { AlertTriangle, TrendingUp } from 'lucide-react'
 import { ReportLayout } from './components/ReportLayout'
 import { ReportToolbar } from './components/ReportToolbar'
 import { SummaryCards } from './components/SummaryCards'
@@ -21,6 +21,9 @@ interface BillWiseRow {
   profit: number
   margin_pct: number
   returned: boolean
+  cost_complete?: boolean
+  uncosted_composition_lines?: number
+  uncosted_simple_lines?: number
 }
 
 interface ProfitData {
@@ -32,12 +35,19 @@ interface ProfitData {
   gross_margin_pct: number
   total_expenses: number
   net_profit: number
+  cost_complete?: boolean
+  simple_cost_complete?: boolean
+  uncosted_simple_items?: number
+  uncosted_simple_lines?: number
+  uncosted_composition_items?: number
+  uncosted_composition_lines?: number
+  composition_cost_basis?: string
   bill_wise: BillWiseRow[]
 }
 
 export default function PnLReport() {
   const { props } = usePage()
-  const report: ProfitData = (props as any).report || { revenue: 0, sale_returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, gross_margin_pct: 0, total_expenses: 0, net_profit: 0, bill_wise: [] }
+  const report: ProfitData = (props as any).report || { revenue: 0, sale_returns: 0, net_revenue: 0, cogs: 0, gross_profit: 0, gross_margin_pct: 0, total_expenses: 0, net_profit: 0, cost_complete: true, bill_wise: [] }
   const filters = (props as any).filters || {}
   const range = useReportDateRange('/reports/pnl', filters, { only: ['report', 'filters'] })
 
@@ -49,7 +59,16 @@ export default function PnLReport() {
     { key: 'cogs', header: 'COGS', render: (r) => formatCurrency(r.cogs), className: 'text-right', sortable: true, sortValue: (r) => r.cogs },
     { key: 'profit', header: 'Profit', render: (r) => <span className={cn('font-semibold', r.profit >= 0 ? 'text-emerald-600' : 'text-red-600')}>{formatCurrency(r.profit)}</span>, className: 'text-right', sortable: true, sortValue: (r) => r.profit },
     { key: 'margin_pct', header: 'Margin', render: (r) => `${r.margin_pct}%`, className: 'text-right', sortable: true, sortValue: (r) => r.margin_pct },
-    { key: 'status', header: 'Status', render: (r) => r.returned ? <span className="text-xs text-red-600 font-medium">Returned</span> : null },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (r) => (
+        <div className="flex flex-col gap-0.5">
+          {r.returned && <span className="text-xs text-red-600 font-medium">Returned</span>}
+          {r.cost_complete === false && <span className="text-[10px] text-amber-600 font-medium">Incomplete cost</span>}
+        </div>
+      ),
+    },
   ]
 
   return (
@@ -71,6 +90,19 @@ export default function PnLReport() {
         { label: 'Gross Profit', value: formatCurrency(report.gross_profit), positive: report.gross_profit >= 0, negative: report.gross_profit < 0 },
         { label: 'Net Profit', value: formatCurrency(report.net_profit), positive: report.net_profit >= 0, negative: report.net_profit < 0 },
       ]} />
+
+      {report.cost_complete === false && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 p-3.5 text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+          <p className="text-xs leading-relaxed">
+            Cost is incomplete for {report.uncosted_composition_items ?? 0} composition sale item(s)
+            ({report.uncosted_composition_lines ?? 0} component line(s)) and{' '}
+            {report.uncosted_simple_items ?? 0} stock sale item(s)
+            ({report.uncosted_simple_lines ?? 0} uncosted stock line(s)). COGS and profit use known
+            costs only and may be overstated.
+          </p>
+        </div>
+      )}
 
       {/* Bill-wise profit table */}
       <ReportTable

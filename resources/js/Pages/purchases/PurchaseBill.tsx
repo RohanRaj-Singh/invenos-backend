@@ -200,6 +200,7 @@ export default function PurchaseBillPage() {
       .filter((p: any) =>
         (p.name || '').toLowerCase().includes(q) ||
         (p.sku || '').toLowerCase().includes(q) ||
+        (p.barcode || '').toLowerCase().includes(q) ||
         ((p.category?.name || p.category || '') + '').toLowerCase().includes(q)
       )
       .slice(0, 8)
@@ -491,6 +492,7 @@ export default function PurchaseBillPage() {
         onShowResultsChange={setShowResults}
         results={filteredProducts.map((p: any) => ({
           id: p.id, name: p.name, sku: p.sku,
+          hasConsumptionComposition: Boolean(p.has_consumption_composition),
           sellingUnits: [{ name: p.purchaseConfig?.name || 'Pack', salePrice: p.purchaseConfig?.cost }],
         }))}
         onAddProduct={addToCart as any}

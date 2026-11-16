@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { usePage } from '@inertiajs/react'
+import { router, usePage } from '@inertiajs/react'
 import { Package, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { ReportLayout } from './components/ReportLayout'
 import { ReportToolbar } from './components/ReportToolbar'
@@ -21,6 +21,7 @@ interface MovementRow {
 export default function ProductLedgerPage() {
   const { props } = usePage()
   const report = (props as any).report || { product: null, movements: [], summary: {} }
+  const products: { id: number; name: string; sku?: string }[] = (props as any).products || []
   const product = report.product
   const summary = report.summary || {}
   const movements: MovementRow[] = report.movements || []
@@ -97,10 +98,33 @@ export default function ProductLedgerPage() {
     return (
       <ReportLayout title="Product Ledger" subtitle="Complete inventory audit trail for any product" icon={<Package className="size-5 text-primary" />}
         toolbar={<ReportToolbar onPrint={() => window.print()} />}>
-        <div className="text-center py-24 text-sm text-muted-foreground">
+        <div className="text-center py-16">
           <Package className="size-12 mx-auto mb-3 text-muted-foreground/20" />
-          <p>Select a product to view its complete inventory timeline.</p>
-          <p className="text-xs mt-1">Navigate from the Stock Report or a product detail page.</p>
+          <p className="text-sm text-muted-foreground">Select a product to view its complete inventory timeline.</p>
+          <div className="mx-auto mt-4 max-w-sm text-left">
+            <label htmlFor="product-ledger-product" className="mb-1.5 block text-xs font-medium text-foreground">
+              Product
+            </label>
+            <select
+              id="product-ledger-product"
+              defaultValue=""
+              onChange={(event) => {
+                const id = event.target.value
+                if (id) router.get('/reports/product-ledger', { product_id: id })
+              }}
+              className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30"
+            >
+              <option value="">Choose a product…</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}{p.sku ? ` · ${p.sku}` : ''}
+                </option>
+              ))}
+            </select>
+            {products.length === 0 && (
+              <p className="mt-2 text-xs text-muted-foreground">No products yet. Add a product first.</p>
+            )}
+          </div>
         </div>
       </ReportLayout>
     )

@@ -88,6 +88,7 @@ class InventoryReportService
         $products = collect($pageItems)->map(function ($p) use ($periodStats) {
             $stats = $periodStats[$p->id] ?? ['sold' => 0, 'purchased' => 0, 'returns' => 0];
             $cost = $this->productCost($p);
+
             return [
                 'id' => $p->id,
                 'name' => $p->name,
@@ -109,6 +110,7 @@ class InventoryReportService
         // ── Category breakdown (full filtered set) ─────────────────
         $byCategory = $base->groupBy(fn ($p) => $p->category_id ?: 'none')->map(function ($group) {
             $name = $group->first()->category?->name ?? 'Uncategorized';
+
             return [
                 'category' => $name,
                 'products' => $group->count(),
@@ -159,6 +161,7 @@ class InventoryReportService
 
         $byCategory = $base->groupBy(fn ($p) => $p->category_id ?: 'none')->map(function ($group) {
             $name = $group->first()->category?->name ?? 'Uncategorized';
+
             return [
                 'category' => $name,
                 'products' => $group->count(),
@@ -228,17 +231,19 @@ class InventoryReportService
      */
     public function lowStock(ReportFilters $filters): array
     {
-        $query = Product::with('category')
+        $query = Product::excludingFormulaOnly()
+            ->with('category')
             ->whereIn('status', ['low-stock', 'out-of-stock'])
             ->when($filters->categoryId, fn ($q) => $q->where('category_id', $filters->categoryId))
             ->when($filters->search, fn ($q) => $q->where(function ($q) use ($filters) {
                 $q->where('name', 'like', "%{$filters->search}%")
-                  ->orWhere('sku', 'like', "%{$filters->search}%");
+                    ->orWhere('sku', 'like', "%{$filters->search}%");
             }))
             ->orderBy('stock_quantity');
 
         if ($filters->perPage > 0) {
             $products = $query->paginate($filters->perPage);
+
             return [
                 'products' => $products->items(),
                 'meta' => [
@@ -264,7 +269,7 @@ class InventoryReportService
      */
     public function valuation(): array
     {
-        $products = Product::get();
+        $products = Product::excludingFormulaOnly()->get();
         $total = 0;
         $byCategory = [];
 
@@ -274,7 +279,7 @@ class InventoryReportService
             $total += $value;
 
             $cat = $p->category?->name ?? 'Uncategorized';
-            if (!isset($byCategory[$cat])) {
+            if (! isset($byCategory[$cat])) {
                 $byCategory[$cat] = ['category' => $cat, 'products' => 0, 'value' => 0];
             }
             $byCategory[$cat]['products']++;
@@ -291,15 +296,21 @@ class InventoryReportService
     // Helpers
     // ─────────────────────────────────────────────────────────────────────
 
-    /** Base product query with search/category/status filters applied. */
+    /**
+     * Base product query with search/category/status filters applied.
+     *
+     * Formula-only products carry no own stock; they are excluded from every
+     * physical-inventory surface so their zero balance is never shown as a
+     * shortage or counted in valuation.
+     */
     private function scopedProducts(ReportFilters $filters): Builder
     {
-        return Product::query()
+        return Product::excludingFormulaOnly()
             ->when($filters->categoryId, fn ($q) => $q->where('category_id', $filters->categoryId))
             ->when($filters->search, fn ($q) => $q->where(function ($q) use ($filters) {
                 $q->where('name', 'like', "%{$filters->search}%")
-                  ->orWhere('sku', 'like', "%{$filters->search}%")
-                  ->orWhere('barcode', 'like', "%{$filters->search}%");
+                    ->orWhere('sku', 'like', "%{$filters->search}%")
+                    ->orWhere('barcode', 'like', "%{$filters->search}%");
             }))
             ->when($filters->status && $filters->status !== 'all', function ($q) use ($filters) {
                 if ($filters->status === 'negative') {
@@ -365,6 +376,7 @@ class InventoryReportService
             ->selectRaw("
                 SUM(CASE WHEN type = 'purchase' THEN quantity ELSE 0 END)      AS purchased,
                 SUM(CASE WHEN type = 'sale'     THEN quantity ELSE 0 END)      AS sold,
+                SUM(CASE WHEN type = 'production' THEN quantity ELSE 0 END)    AS produced,
                 SUM(CASE WHEN type IN ('adjustment','damage','consumption')
                     AND COALESCE(reference,'') <> 'INITIAL' THEN quantity ELSE 0 END) AS adjustments
             ")
@@ -374,16 +386,18 @@ class InventoryReportService
 
         $purchased = (float) ($ledger->purchased ?? 0);
         $sold = abs((float) ($ledger->sold ?? 0));                 // sales stored negative
+        $produced = (float) ($ledger->produced ?? 0);              // production net of reversals
         $saleReturns = $returns['sale'];
         $purchaseReturns = $returns['purchase'];
         $adjustments = (float) ($ledger->adjustments ?? 0);        // net (damage/consumption negative)
 
-        $net = $purchased - $sold + $saleReturns - $purchaseReturns + $adjustments;
+        $net = $purchased - $sold + $produced + $saleReturns - $purchaseReturns + $adjustments;
 
         return [
             'opening_stock' => round($closingStock - $net),
             'purchased' => round($purchased),
             'sold' => round($sold),
+            'produced' => round($produced),
             'sale_returns' => round($saleReturns),
             'purchase_returns' => round($purchaseReturns),
             'adjustments' => round($adjustments),
@@ -398,6 +412,7 @@ class InventoryReportService
             'opening_stock' => round($closingStock),
             'purchased' => 0,
             'sold' => 0,
+            'produced' => 0,
             'sale_returns' => 0,
             'purchase_returns' => 0,
             'adjustments' => 0,

@@ -1,5 +1,5 @@
 import { usePage } from '@inertiajs/react'
-import { Scale } from 'lucide-react'
+import { AlertTriangle, Scale } from 'lucide-react'
 import { ReportLayout } from './components/ReportLayout'
 import { ReportToolbar } from './components/ReportToolbar'
 import { SummaryCards } from './components/SummaryCards'
@@ -72,6 +72,17 @@ export default function BalanceSheetReport() {
           </CardContent>
         </Card>
       </div>
+
+      {totals.cost_complete === false && (
+        <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+          <p>
+            Cost is incomplete, so retained earnings and equity are based on known costs only.{' '}
+            {totals.uncosted_composition_lines ?? 0} component line(s) and{' '}
+            {totals.uncosted_simple_lines ?? 0} uncosted stock line(s) have unavailable cost.
+          </p>
+        </div>
+      )}
 
       <div className={cn(
         'rounded-lg border p-3 text-xs leading-relaxed',

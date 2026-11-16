@@ -4,7 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Domains\Inventory\Services\InventoryService;
 use App\Domains\Products\Services\ProductService;
+use App\Models\Product;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -25,12 +28,17 @@ class InventoryController extends Controller
         $categoryId = request('category_id') ? (int) request('category_id') : null;
 
         $archived = request('archived', 'active');
-        if (!in_array($archived, ['active', 'archived', 'all'], true)) {
+        if (! in_array($archived, ['active', 'archived', 'all'], true)) {
             $archived = 'active';
         }
 
+        $composition = request('composition', 'all');
+        if (! in_array($composition, ['all', 'formula', 'assembly'], true)) {
+            $composition = 'all';
+        }
+
         $perPage = (int) request('per_page', 25);
-        if (!in_array($perPage, self::PAGE_SIZES, true)) {
+        if (! in_array($perPage, self::PAGE_SIZES, true)) {
             $perPage = 25;
         }
 
@@ -40,6 +48,7 @@ class InventoryController extends Controller
             categoryId: $categoryId,
             perPage: $perPage,
             archived: $archived,
+            composition: $composition,
         );
 
         return Inertia::render('inventory/ProductList', [
@@ -56,51 +65,35 @@ class InventoryController extends Controller
                 'status' => $status,
                 'category_id' => $categoryId,
                 'archived' => $archived,
+                'composition' => $composition,
                 'per_page' => $perPage,
             ],
         ]);
     }
 
-    public function overview(): Response
+    /**
+     * The dedicated movement page never existed as a component; the Stock Ledger
+     * report is the working equivalent and carries the same data plus filters
+     * and export. Redirect rather than render a missing page.
+     */
+    public function movements(): RedirectResponse
     {
-        $overview = $this->inventoryService->getOverview();
-
-        return Inertia::render('inventory/Overview', [
-            'overview' => $overview,
-        ]);
+        return redirect()->route('reports.stock.ledger', request()->only('product_id'));
     }
 
-    public function movements(): Response
+    /**
+     * Low stock is owned by the reports module. Kept as a redirect so existing
+     * links and bookmarks keep working instead of failing on a missing page.
+     */
+    public function lowStock(): RedirectResponse
     {
-        $productId = request('product_id') ? (int) request('product_id') : null;
-
-        $movements = $this->inventoryService->getMovements(
-            productId: $productId,
-            perPage: 50,
-        );
-
-        return Inertia::render('inventory/Movements', [
-            'movements' => $movements->items(),
-            'meta' => [
-                'current_page' => $movements->currentPage(),
-                'last_page' => $movements->lastPage(),
-                'per_page' => $movements->perPage(),
-                'total' => $movements->total(),
-            ],
-        ]);
+        return redirect()->route('reports.stock.low-stock');
     }
 
-    public function lowStock(): Response
+    public function adjust(): RedirectResponse
     {
-        $items = $this->inventoryService->getLowStock();
+        $this->authorize('inventory.adjust');
 
-        return Inertia::render('inventory/LowStock', [
-            'items' => $items,
-        ]);
-    }
-
-    public function adjust(): \Illuminate\Http\RedirectResponse
-    {
         $data = request()->validate([
             // Archived products are hidden from every picker, so reject them here too
             // rather than trusting the client not to post one.
@@ -115,6 +108,17 @@ class InventoryController extends Controller
             'product_id.exists' => 'That product is archived, so its stock cannot be adjusted.',
         ]);
 
+        // A formula is an ingredient template, not stocked goods: its own balance
+        // never moves. Allowing an adjustment here would create phantom inventory
+        // that no sale or purchase could ever reconcile.
+        $product = Product::withArchived()->findOrFail((int) $data['product_id']);
+
+        if ($product->isFormulaOnly()) {
+            throw ValidationException::withMessages([
+                'product_id' => "'{$product->name}' is a formula, so it holds no stock of its own. Adjust the ingredient products instead.",
+            ]);
+        }
+
         $this->inventoryService->recordTransaction(
             productId: (int) $data['product_id'],
             type: $data['type'],
@@ -125,12 +129,9 @@ class InventoryController extends Controller
         return back()->with('success', 'Stock adjusted successfully.');
     }
 
-    public function valuation(): Response
+    /** Stock valuation is presented by the Stock Report; keep the URL working. */
+    public function valuation(): RedirectResponse
     {
-        $valuation = $this->inventoryService->getValuation();
-
-        return Inertia::render('inventory/Valuation', [
-            'valuation' => $valuation,
-        ]);
+        return redirect()->route('reports.stock');
     }
 }

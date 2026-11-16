@@ -18,6 +18,8 @@ import {
   Trash2,
   ListOrdered,
   Activity,
+  Beaker,
+  Plus,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { modules } from '@/data/dashboard'
@@ -52,6 +54,7 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
 
   const isActive = (href: string) => {
     if (href === '/') return url === '/'
+    if (href.includes('?')) return url === href
     return url.startsWith(href)
   }
 
@@ -110,6 +113,22 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
           <Package className="size-4 shrink-0" />
           <span>Inventory</span>
         </Link>
+
+        <Link href="/inventory?composition=formula" onClick={onClose} className={navLinkClass('/inventory?composition=formula')}>
+          <Beaker className="size-4 shrink-0" />
+          <span>Formulas</span>
+        </Link>
+
+        {/* Both creation flows are first-class: a formula is not a stocked
+            product, so it needs its own entry point. */}
+        <div className="ml-7 space-y-0.5">
+          <button onClick={() => handleNav('/inventory/add')} className={subLinkClass('/inventory/add')}>
+            <Plus className="size-3.5" /> Add Product
+          </button>
+          <button onClick={() => handleNav('/inventory/add?formula=1')} className={subLinkClass('/inventory/add?formula=1')}>
+            <Plus className="size-3.5" /> Add Formula
+          </button>
+        </div>
 
         {/* Sales */}
         <div>
@@ -198,13 +217,20 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
           </button>
           {reportsOpen && (
             <div className="ml-4 space-y-0.5 pt-0.5">
+              <button onClick={() => handleNav('/reports')} className={subLinkClass('/reports')}>All Reports</button>
               <button onClick={() => handleNav('/reports/day-book')} className={subLinkClass('/reports/day-book')}>Day Book</button>
               <button onClick={() => handleNav('/reports/sales')} className={subLinkClass('/reports/sales')}>Sales Report</button>
               <button onClick={() => handleNav('/reports/purchases')} className={subLinkClass('/reports/purchases')}>Purchase Report</button>
               <button onClick={() => handleNav('/reports/stock')} className={subLinkClass('/reports/stock')}>Stock Report</button>
+              <button onClick={() => handleNav('/reports/stock/ledger')} className={subLinkClass('/reports/stock/ledger')}>Stock Ledger</button>
+              <button onClick={() => handleNav('/reports/stock/low-stock')} className={subLinkClass('/reports/stock/low-stock')}>Low Stock</button>
+              <button onClick={() => handleNav('/reports/cash-flow')} className={subLinkClass('/reports/cash-flow')}>Cash Flow</button>
               <button onClick={() => handleNav('/reports/financial-overview')} className={subLinkClass('/reports/financial-overview')}>Financial Overview</button>
-              <button onClick={() => handleNav('/reports/pnl')} className={subLinkClass('/reports/pnl')}>Profit & Loss</button>
+              <button onClick={() => handleNav('/reports/pnl')} className={subLinkClass('/reports/pnl')}>Profit &amp; Loss</button>
+              <button onClick={() => handleNav('/reports/balance-sheet')} className={subLinkClass('/reports/balance-sheet')}>Balance Sheet</button>
               <button onClick={() => handleNav('/reports/product-ledger')} className={subLinkClass('/reports/product-ledger')}>Product Ledger</button>
+              <button onClick={() => handleNav('/reports/party')} className={subLinkClass('/reports/party')}>Party Statement</button>
+              <button onClick={() => handleNav('/reports/component-usage')} className={subLinkClass('/reports/component-usage')}>Ingredient Usage</button>
             </div>
           )}
         </div>

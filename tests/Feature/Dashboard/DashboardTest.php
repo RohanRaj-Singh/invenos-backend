@@ -7,6 +7,7 @@ use App\Models\Contact;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SellingUnit;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -33,9 +34,22 @@ class DashboardTest extends TestCase
         $this->assertArrayHasKey('outstanding_receivables', $metrics);
     }
 
+    public function test_dashboard_metrics_endpoint_requires_authentication(): void
+    {
+        $this->getJson('/api/dashboard/metrics')->assertUnauthorized();
+    }
+
     public function test_dashboard_metrics_endpoint(): void
     {
-        $response = $this->getJson('/api/dashboard/metrics');
+        $salesman = User::create([
+            'name' => 'Salesman',
+            'username' => 'sales-' . uniqid(),
+            'email' => 'sales-' . uniqid() . '@example.com',
+            'password' => 'password',
+            'role' => 'salesman',
+        ]);
+
+        $response = $this->actingAs($salesman)->getJson('/api/dashboard/metrics');
         $response->assertOk();
         $response->assertJsonStructure([
             'today_sales', 'today_returns', 'today_net_sales',
@@ -55,8 +69,8 @@ class DashboardTest extends TestCase
     public function test_dashboard_inventory_report_has_low_stock(): void
     {
         $report = app(ReportService::class)->getInventoryReport();
-        $this->assertArrayHasKey('low_stock', $report);
-        $this->assertArrayHasKey('out_of_stock', $report);
-        $this->assertArrayHasKey('total_value', $report);
+        $this->assertArrayHasKey('low_stock', $report['summary']);
+        $this->assertArrayHasKey('out_of_stock', $report['summary']);
+        $this->assertArrayHasKey('total_value', $report['summary']);
     }
 }

@@ -51,7 +51,6 @@ class UpdateProductRequest extends FormRequest
             'low_stock_threshold' => 'nullable|numeric|min:0',
             'supplier_name' => 'nullable|string|max:255',
             'location' => 'nullable|string|max:100',
-            'stock_quantity' => 'nullable|numeric|min:0',
             'default_purchase_cost' => 'nullable|numeric|min:0',
             'allow_negative_stock' => 'boolean',
             'selling_units' => 'nullable|array',

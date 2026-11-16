@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Domains\Products\Services\ProductUnitService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -57,16 +58,91 @@ class Product extends Model
         return $query->withoutGlobalScope('notArchived');
     }
 
+    /**
+     * Products that hold no stock of their own: they have an active consumption
+     * formula and no active assembly formula. These are service/formula records,
+     * not physical inventory.
+     */
+    public function scopeFormulaOnly(Builder $query): Builder
+    {
+        return $query
+            ->whereHas('compositions', fn (Builder $composition) => $composition
+                ->where('kind', ProductComposition::KIND_CONSUMPTION)
+                ->where('is_active', true))
+            ->whereDoesntHave('compositions', fn (Builder $composition) => $composition
+                ->where('kind', ProductComposition::KIND_ASSEMBLY)
+                ->where('is_active', true));
+    }
+
+    /** Exclude formula-only records from a physical-inventory surface. */
+    public function scopeExcludingFormulaOnly(Builder $query): Builder
+    {
+        return $query->whereNot(function (Builder $product) {
+            $product->formulaOnly();
+        });
+    }
+
+    public function isFormulaOnly(): bool
+    {
+        return $this->compositions()
+            ->where('kind', ProductComposition::KIND_CONSUMPTION)
+            ->where('is_active', true)
+            ->exists()
+            && ! $this->compositions()
+                ->where('kind', ProductComposition::KIND_ASSEMBLY)
+                ->where('is_active', true)
+                ->exists();
+    }
+
     public function isArchived(): bool
     {
         return $this->archived_at !== null;
     }
 
-    public function category() { return $this->belongsTo(Category::class); }
-    public function sellingUnits() { return $this->hasMany(SellingUnit::class); }
-    public function packaging() { return $this->hasMany(ProductPackaging::class); }
-    public function inventoryTransactions() { return $this->hasMany(InventoryTransaction::class); }
-    public function deletedBy() { return $this->belongsTo(\App\Models\User::class, 'deleted_by'); }
+    public function category()
+    {
+        return $this->belongsTo(Category::class);
+    }
+
+    public function sellingUnits()
+    {
+        return $this->hasMany(SellingUnit::class);
+    }
+
+    public function packaging()
+    {
+        return $this->hasMany(ProductPackaging::class);
+    }
+
+    public function inventoryTransactions()
+    {
+        return $this->hasMany(InventoryTransaction::class);
+    }
+
+    public function compositions()
+    {
+        return $this->hasMany(ProductComposition::class);
+    }
+
+    public function compositionItemsAsComponent()
+    {
+        return $this->hasMany(ProductCompositionItem::class, 'component_product_id');
+    }
+
+    public function compositionRuns()
+    {
+        return $this->hasMany(CompositionRun::class);
+    }
+
+    public function compositionRunItemsAsComponent()
+    {
+        return $this->hasMany(CompositionRunItem::class, 'component_product_id');
+    }
+
+    public function deletedBy()
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
+    }
 
     /**
      * Resolved display name for the base unit.
@@ -75,7 +151,7 @@ class Product extends Model
      */
     public function getBaseUnitNameAttribute(): string
     {
-        return app(\App\Domains\Products\Services\ProductUnitService::class)
+        return app(ProductUnitService::class)
             ->resolveDisplayUnit($this->base_unit_id);
     }
 

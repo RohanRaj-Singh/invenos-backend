@@ -23,7 +23,7 @@ class SalesTest extends TestCase
 
     private function product(int $stock = 100): Product
     {
-        $p = Product::create(['name' => 'Test', 'sku' => 'TST-' . uniqid(), 'base_unit_id' => 'piece', 'stock_quantity' => $stock, 'track_inventory' => true]);
+        $p = Product::create(['name' => 'Test', 'sku' => 'TST-' . uniqid(), 'base_unit_id' => 'piece', 'stock_quantity' => $stock, 'track_inventory' => true, 'allow_negative_stock' => false]);
         SellingUnit::create(['product_id' => $p->id, 'name' => 'Single', 'unit_id' => 'piece', 'quantity' => 1, 'sale_price' => 100, 'is_default' => true]);
         return $p;
     }
@@ -53,7 +53,7 @@ class SalesTest extends TestCase
     public function test_insufficient_stock_rejected(): void
     {
         $p = $this->product(3);
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(\InvalidArgumentException::class);
         app(SaleService::class)->create(new CreateSaleData('INV-NO-' . uniqid(), $this->customer()->id, 'C1', '2026-07-26',
             [new SaleItemData($p->id, 'Test', 10, 1, 10, 100, 1000, 'Piece', 0, 'General')],
             0, 1000, 'cash', 'paid', 'pos', null, 'Test'));
