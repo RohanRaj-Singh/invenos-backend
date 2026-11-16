@@ -356,6 +356,6 @@ class CompositionController extends Controller
 
     private function ensureBelongs(Product $product, ProductComposition $composition): void
     {
-        abort_unless($composition->product_id === $product->id, 404);
+        abort_unless((int) $composition->product_id === (int) $product->id, 404);
     }
 }

@@ -217,25 +217,33 @@ class SaleService
                         ]);
                     }
 
-                    // Server-side selling unit re-validation:
-                    // When a selling_unit_id is provided, look up the authoritative
-                    // conversion factor from the selling_units table instead of
-                    // trusting the client-provided baseUnitQuantity.
-                    $authoritativeBaseUnitQty = $itemData->baseUnitQuantity;
-                    if ($consumptionComposition !== null) {
-                        // Composition quantities must never come from the client.
-                        // No selling unit means the line is expressed in base units.
-                        $authoritativeBaseUnitQty = 1.0;
-                    }
+                    // Selling unit re-validation. A supplied unit must belong to
+                    // this product; the stored conversion factor wins over the
+                    // client's. A line that names no unit is expressed in base
+                    // units — for formulas those come from the formula, never
+                    // from the client, so a stale id must not scale consumption.
+                    $authoritativeBaseUnitQty = $consumptionComposition !== null
+                        ? 1.0
+                        : $itemData->baseUnitQuantity;
+
                     if ($itemData->sellingUnitId) {
-                        $sellingUnit = SellingUnit::lockForUpdate()->find($itemData->sellingUnitId);
-                        if ($sellingUnit && $sellingUnit->product_id === $product->id) {
-                            $authoritativeBaseUnitQty = (float) $sellingUnit->quantity;
-                        } elseif ($consumptionComposition !== null) {
+                        $sellingUnit = SellingUnit::query()
+                            ->whereKey($itemData->sellingUnitId)
+                            ->where('product_id', $product->id)
+                            ->lockForUpdate()
+                            ->first();
+
+                        if ($sellingUnit === null) {
+                            // Either the unit was removed or the cart was built
+                            // before this product was replaced. Both are fixed by
+                            // re-adding the line, so say that instead of calling
+                            // the product data invalid.
                             throw ValidationException::withMessages([
-                                'items' => "The selling unit for '{$product->name}' is invalid.",
+                                'items' => "The price unit for '{$product->name}' is out of date. Remove this line and add the product again.",
                             ]);
                         }
+
+                        $authoritativeBaseUnitQty = (float) $sellingUnit->quantity;
                     }
 
                     $baseQty = $itemData->packagingQuantity * $authoritativeBaseUnitQty;
