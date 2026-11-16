@@ -4,9 +4,11 @@ namespace App\Http\Resources;
 
 use App\Domains\Inventory\Services\InventoryService;
 use App\Domains\Products\Services\ProductUnitService;
+use App\Models\ProductComposition;
 use App\Models\ProductCompositionItem;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Gate;
 
 class ProductCompositionItemResource extends JsonResource
 {
@@ -38,6 +40,8 @@ class ProductCompositionItemResource extends JsonResource
                 $displayUnitId,
             );
 
+        $canViewCost = Gate::allows('cost', ProductComposition::class);
+
         return [
             'id' => $this->id,
             'component_product_id' => $this->component_product_id,
@@ -67,9 +71,13 @@ class ProductCompositionItemResource extends JsonResource
             'wastage_pct' => (float) $this->wastage_pct,
             'effective_quantity' => $this->cost['effective_quantity']
                 ?? ((float) $this->quantity_base * (1 + ((float) $this->wastage_pct / 100))),
-            'unit_cost' => $this->cost['unit_cost'] ?? null,
-            'line_cost' => $this->cost['line_cost'] ?? null,
-            'cost_basis' => $this->cost['cost_basis'] ?? 'unavailable',
+            // Cost keys are withheld entirely — not nulled — so an unauthorised
+            // client cannot distinguish "no cost" from "cost hidden".
+            ...($canViewCost ? [
+                'unit_cost' => $this->cost['unit_cost'] ?? null,
+                'line_cost' => $this->cost['line_cost'] ?? null,
+                'cost_basis' => $this->cost['cost_basis'] ?? 'unavailable',
+            ] : []),
             'nested' => (bool) ($this->cost['nested'] ?? false),
             'nested_composition_id' => $this->cost['nested_composition_id'] ?? null,
             'nested_version' => $this->cost['nested_version'] ?? null,

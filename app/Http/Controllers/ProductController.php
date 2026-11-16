@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Domains\Composition\Services\CompositionPayloadMapper;
+use App\Domains\Composition\Services\CompositionService;
 use App\Domains\Products\DTOs\CreateProductData;
 use App\Domains\Products\Services\PackagingDerivationEngine;
 use App\Domains\Products\Services\ProductService;
@@ -10,12 +12,15 @@ use App\Http\Requests\Products\CreateProductRequest;
 use App\Http\Requests\Products\UpdateProductRequest;
 use App\Models\InventoryTransaction;
 use App\Models\Product;
+use App\Models\ProductComposition;
 use App\Models\PurchaseBillItem;
 use App\Models\SaleItem;
 use App\Policies\Lifecycle\ProductPolicy;
 use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -26,6 +31,8 @@ class ProductController extends Controller
         private readonly PackagingDerivationEngine $derivationEngine,
         private readonly RecordLifecycleService $lifecycle,
         private readonly ProductUnitService $productUnitService,
+        private readonly CompositionPayloadMapper $compositionMapper,
+        private readonly CompositionService $compositions,
     ) {}
 
     public function index(): Response
@@ -59,6 +66,9 @@ class ProductController extends Controller
             'products' => $this->productService->search(perPage: 999)->items(),
             'generated_sku' => $this->productService->generateSku(''),
             'setup_formula' => request()->boolean('formula'),
+            // Live formula costing is only shown (and only requested) by users
+            // who may see cost.
+            'can_view_cost' => Gate::allows('cost', ProductComposition::class),
         ]);
     }
 
@@ -66,7 +76,16 @@ class ProductController extends Controller
     {
         $this->authorize('products.create');
 
-        $data = CreateProductData::fromRequest($request->validated());
+        $validated = $request->validated();
+        $compositionPayload = $validated['composition'] ?? null;
+        unset($validated['composition']);
+
+        if ($compositionPayload !== null) {
+            // Creating a formula is composition management, not just product entry.
+            $this->authorize('manage', ProductComposition::class);
+        }
+
+        $data = CreateProductData::fromRequest($validated);
 
         // Ensure unique barcode — append suffix if collision
         if ($data->barcode && Product::withTrashed()->where('barcode', $data->barcode)->exists()) {
@@ -122,11 +141,30 @@ class ProductController extends Controller
             );
         }
 
-        $product = $this->productService->create($data);
+        // Product and first formula version commit or roll back together, so a
+        // rejected ingredient never leaves a half-created formula product behind.
+        $product = DB::transaction(function () use ($data, $compositionPayload, $request) {
+            $product = $this->productService->create($data);
+
+            if ($compositionPayload !== null) {
+                $payload = ['kind' => ProductComposition::KIND_CONSUMPTION, ...$compositionPayload];
+                $saveData = $this->compositionMapper->toSaveData($payload, $product->id);
+                $this->compositions->save($saveData, $request->user()?->name);
+            }
+
+            return $product;
+        });
 
         if ($request->boolean('_stay')) {
             return redirect()->route('inventory.create')
                 ->with('success', "{$product->name} saved ✓");
+        }
+
+        if ($compositionPayload !== null) {
+            return redirect()->route('inventory.show', [
+                'id' => $product->id,
+                'tab' => 'composition',
+            ])->with('success', 'Formula created.');
         }
 
         if ($request->boolean('_setup_formula')) {
@@ -172,6 +210,8 @@ class ProductController extends Controller
             'movements' => $movements,
             'purchases' => $purchases,
             'sales' => $sales,
+            // Cost visibility is decided by the server, not inferred from role.
+            'can_view_cost' => Gate::allows('cost', ProductComposition::class),
             'lifecycle' => [
                 'can_delete' => $blocker === null,
                 'delete_blocker' => $blocker,

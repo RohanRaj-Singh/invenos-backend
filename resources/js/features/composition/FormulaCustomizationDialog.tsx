@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, FlaskConical, Loader2, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { fetchActiveComposition } from './api'
+import { fetchActiveComposition, fetchProfitabilityPreview } from './api'
 import { cn } from '@/lib/utils'
+import { formatCurrency } from '@/lib/format'
+import type { FormulaProfitability } from './types'
 import type { FormulaDetailLine, FormulaOverride } from '@/types'
 
 interface FormulaProductInfo {
@@ -25,6 +27,8 @@ export interface FormulaCustomizationResult {
   overrides: FormulaOverride[]
   optionalItemIds: number[]
   details: FormulaDetailLine[]
+  /** Cost of one formula at the confirmed quantities, when known. */
+  estimatedCostPerFormulaUnit?: number | null
 }
 
 interface FormulaCustomizationDialogProps {
@@ -33,6 +37,13 @@ interface FormulaCustomizationDialogProps {
   initial?: FormulaInitialCustomization | null
   onClose: () => void
   onConfirm: (customization: FormulaCustomizationResult) => void
+  /** Server-decided cost permission; the preview is skipped entirely without it. */
+  canViewCost?: boolean
+  /** Commercial context, used only for the profitability preview. */
+  quantity?: number
+  sellingUnitId?: number | null
+  unitPrice?: number | null
+  discountPercent?: number
 }
 
 interface FormulaRow {
@@ -55,6 +66,11 @@ export default function FormulaCustomizationDialog({
   initial,
   onClose,
   onConfirm,
+  canViewCost = false,
+  quantity = 1,
+  sellingUnitId = null,
+  unitPrice = null,
+  discountPercent = 0,
 }: FormulaCustomizationDialogProps) {
   const [rows, setRows] = useState<FormulaRow[]>([])
   const [compositionId, setCompositionId] = useState<number | null>(initial?.compositionId ?? null)
@@ -62,6 +78,12 @@ export default function FormulaCustomizationDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [formulaName, setFormulaName] = useState(product.name)
+
+  // ── Profitability preview (informational, cost permission only) ──
+  const [profitability, setProfitability] = useState<FormulaProfitability | null>(null)
+  const [profitLoading, setProfitLoading] = useState(false)
+  const [profitError, setProfitError] = useState<string | null>(null)
+  const previewRequest = useRef(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -111,6 +133,60 @@ export default function FormulaCustomizationDialog({
   useEffect(() => {
     if (open) void load()
   }, [open, load])
+
+  // Key the request on the actual quantities so re-renders do not refetch.
+  const previewKey = useMemo(() => rows
+    .map((row) => `${row.compositionItemId}:${row.actual}`)
+    .join('|'), [rows])
+
+  useEffect(() => {
+    if (!open || !canViewCost || !compositionId || rows.length === 0) {
+      setProfitability(null)
+      setProfitLoading(false)
+      return
+    }
+
+    const overrides = rows
+      .map((row) => ({ composition_item_id: row.compositionItemId, quantity: Number(row.actual), unit_id: row.unit }))
+
+    // An invalid row is already reported by the form; do not fire a doomed request.
+    if (overrides.some((row) => !Number.isFinite(row.quantity) || row.quantity <= 0)) {
+      setProfitability(null)
+      return
+    }
+
+    const requestId = ++previewRequest.current
+
+    const timer = setTimeout(async () => {
+      setProfitLoading(true)
+      try {
+        const result = await fetchProfitabilityPreview(product.id, {
+          composition_id: compositionId,
+          quantity,
+          selling_unit_id: sellingUnitId,
+          unit_price: unitPrice,
+          discount_percent: discountPercent,
+          overrides,
+          optional_item_ids: rows.filter((row) => row.optional).map((row) => row.compositionItemId),
+        })
+
+        // Ignore replies that lost the race.
+        if (previewRequest.current !== requestId) return
+        setProfitability(result)
+        setProfitError(null)
+      } catch {
+        if (previewRequest.current !== requestId) return
+        setProfitability(null)
+        setProfitError('Profitability preview unavailable.')
+      } finally {
+        if (previewRequest.current === requestId) setProfitLoading(false)
+      }
+    }, 350)
+
+    return () => clearTimeout(timer)
+    // previewKey stands in for rows so typing does not refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, canViewCost, compositionId, previewKey, quantity, sellingUnitId, unitPrice, discountPercent, product.id])
 
   const totalLines = useMemo(
     () => rows.filter((row) => Number(row.actual) > 0).length,
@@ -167,6 +243,8 @@ export default function FormulaCustomizationDialog({
       overrides,
       optionalItemIds: rows.filter((row) => row.optional).map((row) => row.compositionItemId),
       details,
+      // Reused by the cart summary; null when the preview is unavailable.
+      estimatedCostPerFormulaUnit: profitability?.cost_per_formula_unit ?? null,
     })
   }
 
@@ -259,6 +337,71 @@ export default function FormulaCustomizationDialog({
                 Quantities are per formula. Selling 5 formulas consumes 5× these amounts. Ingredient
                 stock is checked by the server at checkout; this dialog does not reserve stock.
               </p>
+
+              {/* Profitability — estimated, informational, cost permission only */}
+              {canViewCost && (
+                <div className="rounded-xl border border-border p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">Formula profitability</span>
+                    {profitLoading && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                  </div>
+
+                  {profitError ? (
+                    <p className="mt-1.5 text-[11px] text-amber-600 dark:text-amber-400">
+                      {profitError} You can still customize and sell this formula.
+                    </p>
+                  ) : !profitability ? (
+                    <p className="mt-1.5 text-[11px] text-muted-foreground">
+                      Adjust a quantity to see an estimate.
+                    </p>
+                  ) : (
+                    <div className="mt-2 space-y-1">
+                      <ProfitRow label="Formula quantity" value={String(profitability.quantity)} />
+                      <ProfitRow
+                        label="Estimated ingredient cost"
+                        value={formatMoney(profitability.total_ingredient_cost)}
+                      />
+                      <ProfitRow label="Gross subtotal" value={formatMoney(profitability.gross_subtotal)} />
+                      <ProfitRow label="Discount" value={formatMoney(profitability.discount_amount)} />
+                      <ProfitRow label="Net revenue" value={formatMoney(profitability.net_revenue)} />
+                      <ProfitRow
+                        label="Estimated gross profit"
+                        value={formatMoney(profitability.gross_profit)}
+                        emphasis
+                        negative={(profitability.gross_profit ?? 0) < 0}
+                      />
+                      <ProfitRow
+                        label="Estimated gross margin"
+                        value={profitability.gross_margin_percent == null
+                          ? '—'
+                          : `${Number(profitability.gross_margin_percent.toFixed(2)).toLocaleString()}%`}
+                        emphasis
+                        negative={(profitability.gross_margin_percent ?? 0) < 0}
+                      />
+
+                      <div className="mt-2 border-t border-border pt-1.5">
+                        <ProfitRow
+                          label={`Recommended @ ${Number(profitability.target_margin_percent.toFixed(2)).toLocaleString()}% margin`}
+                          value={profitability.recommended_price == null
+                            ? 'Not available'
+                            : formatMoney(profitability.recommended_price)}
+                        />
+                      </div>
+
+                      {!profitability.cost_complete && (
+                        <p className="pt-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">
+                          Some ingredients have no reliable cost yet, so profit and margin are hidden
+                          rather than guessed.
+                        </p>
+                      )}
+                      <p className="pt-1 text-[10px] leading-relaxed text-muted-foreground">
+                        Estimated from current ingredient prices; excludes overhead. Checkout
+                        recalculates its own authoritative figures.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
@@ -271,5 +414,36 @@ export default function FormulaCustomizationDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function formatMoney(value: number | null): string {
+  return value == null ? '—' : formatCurrency(value)
+}
+
+function ProfitRow({
+  label,
+  value,
+  emphasis = false,
+  negative = false,
+}: {
+  label: string
+  value: string
+  emphasis?: boolean
+  negative?: boolean
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-[11px]">
+      <span className="min-w-0 truncate text-muted-foreground">{label}</span>
+      <span
+        className={cn(
+          'shrink-0 tabular-nums',
+          emphasis ? 'text-xs font-semibold' : 'font-medium',
+          negative ? 'text-red-600 dark:text-red-400' : 'text-foreground',
+        )}
+      >
+        {value}
+      </span>
+    </div>
   )
 }

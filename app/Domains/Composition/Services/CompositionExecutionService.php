@@ -104,11 +104,16 @@ class CompositionExecutionService
         }
     }
 
-    private function executeInTransaction(
-        ExecuteCompositionData $data,
-        ?string $idempotencyKey,
-        string $requiredKind,
-    ): CompositionRun {
+    /**
+     * Resolve and expand an execution request without touching stock.
+     *
+     * Shared by real execution and the read-only cost preview so both agree on
+     * which components are consumed and in what quantity.
+     *
+     * @return array{0: ProductComposition, 1: Product, 2: string, 3: float, 4: array<int, array<string, mixed>>}
+     */
+    private function prepareExecution(ExecuteCompositionData $data, string $requiredKind): array
+    {
         $composition = ProductComposition::query()
             ->with('items')
             ->find($data->compositionId);
@@ -181,7 +186,75 @@ class CompositionExecutionService
             ]);
         }
 
-        $aggregated = $this->aggregate($requirements);
+        return [$composition, $parent, $outputUnitId, $executionBaseQuantity, $this->aggregate($requirements)];
+    }
+
+    /**
+     * Read-only cost of an execution request.
+     *
+     * Performs no locking, no writes and no stock preflight: a preview must not
+     * fail merely because stock is short, and must never influence inventory.
+     *
+     * @return array{lines: array<int, array<string, mixed>>, total_cost: float|null, complete: bool, cost_basis: string}
+     */
+    public function previewRequirements(
+        ExecuteCompositionData $data,
+        string $requiredKind = ProductComposition::KIND_CONSUMPTION,
+    ): array {
+        [, , , , $aggregated] = $this->prepareExecution($data, $requiredKind);
+
+        $products = Product::withArchived()
+            ->withTrashed()
+            ->whereIn('id', array_keys($aggregated))
+            ->get()
+            ->keyBy('id');
+
+        $this->applyCosts($aggregated, $products);
+
+        $rank = ['exact' => 0, 'estimated' => 1, 'unavailable' => 2];
+        $worst = 0;
+        $total = 0.0;
+        $complete = true;
+        $lines = [];
+
+        foreach ($aggregated as $componentProductId => $line) {
+            $lineTotal = $line['total_cost'];
+
+            if ($lineTotal === null) {
+                $complete = false;
+            } else {
+                $total += (float) $lineTotal;
+            }
+
+            $basis = (string) ($line['cost_basis'] ?? 'unavailable');
+            $worst = max($worst, $rank[$basis] ?? 2);
+
+            $lines[] = [
+                'component_product_id' => $componentProductId,
+                'component_name' => $line['component_name'] ?? null,
+                'unit' => $line['base_unit_id'] ?? null,
+                'actual_quantity' => round((float) $line['actual_quantity'], 6),
+                'unit_cost' => $line['unit_cost'],
+                'total_cost' => $lineTotal,
+                'cost_basis' => $basis,
+            ];
+        }
+
+        return [
+            'lines' => $lines,
+            'total_cost' => $complete ? round($total, 6) : null,
+            'complete' => $complete,
+            'cost_basis' => array_search($worst, $rank, true) ?: 'unavailable',
+        ];
+    }
+
+    private function executeInTransaction(
+        ExecuteCompositionData $data,
+        ?string $idempotencyKey,
+        string $requiredKind,
+    ): CompositionRun {
+        [$composition, $parent, $outputUnitId, $executionBaseQuantity, $aggregated]
+            = $this->prepareExecution($data, $requiredKind);
 
         $lockIds = array_keys($aggregated);
         $lockIds[] = $parent->id;

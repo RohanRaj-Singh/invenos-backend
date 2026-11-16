@@ -13,6 +13,7 @@ use App\Models\ProductComposition;
 use App\Models\Sale;
 use App\Services\Lifecycle\RecordLifecycleService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -83,6 +84,9 @@ class SaleController extends Controller
         return Inertia::render('pos/SaleBill', [
             'products' => $products,
             'customers' => $customers,
+            // The POS only requests a profitability preview when the server says
+            // this user may see cost; hiding it in the UI would not be enough.
+            'can_view_cost' => Gate::allows('cost', ProductComposition::class),
         ]);
     }
 
@@ -134,7 +138,19 @@ class SaleController extends Controller
         $data = $sale->toArray();
         $runs = $data['composition_runs'] ?? [];
 
-        $data['composition_runs'] = array_map(function (array $run): array {
+        // Line cost is financial data: it follows the same permission as
+        // composition cost, and is stripped entirely rather than nulled.
+        $canViewCost = Gate::allows('cost', ProductComposition::class);
+
+        if (! $canViewCost) {
+            $data['items'] = array_map(function (array $item): array {
+                unset($item['cost_price'], $item['cost_complete'], $item['uncosted_quantity']);
+
+                return $item;
+            }, $data['items'] ?? []);
+        }
+
+        $data['composition_runs'] = array_map(function (array $run) use ($canViewCost): array {
             $snapshot = $run['template_snapshot'] ?? [];
 
             return [
@@ -154,7 +170,7 @@ class SaleController extends Controller
                     'unit' => $item['unit'],
                     'actual_quantity' => $item['actual_quantity'],
                     'template_quantity' => $item['template_quantity'],
-                    'cost_basis' => $item['cost_basis'] ?? null,
+                    ...($canViewCost ? ['cost_basis' => $item['cost_basis'] ?? null] : []),
                 ], $run['items'] ?? []),
             ];
         }, $runs);

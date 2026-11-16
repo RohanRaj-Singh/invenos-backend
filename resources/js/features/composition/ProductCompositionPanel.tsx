@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   AlertTriangle,
   Beaker,
+  Eye,
   History,
   Loader2,
   Pencil,
@@ -14,7 +15,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/format'
+import { cn } from '@/lib/utils'
 import CompositionBuilder from './CompositionBuilder'
+import FormulaDetailDrawer from './FormulaDetailDrawer'
 import {
   compositionErrorMessage,
   deactivateComposition,
@@ -28,6 +31,8 @@ interface ProductInfo {
   base_unit_id: string
   base_unit_name?: string
   default_price?: number
+  sku?: string | null
+  status?: string | null
 }
 
 interface ProductCompositionPanelProps {
@@ -65,6 +70,7 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [builderOpen, setBuilderOpen] = useState(false)
+  const [detailComposition, setDetailComposition] = useState<ProductComposition | null>(null)
   const [editing, setEditing] = useState<ProductComposition | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [deactivating, setDeactivating] = useState<number | null>(null)
@@ -221,6 +227,41 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
                   {canViewCost && composition.is_estimated && <Badge variant="outline">Estimated</Badge>}
                 </div>
 
+                {/* Pricing guidance, already computed server-side for this row. */}
+                {canViewCost && composition.pricing && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                    <span>
+                      Margin{' '}
+                      <span
+                        className={cn(
+                          'font-medium tabular-nums',
+                          composition.pricing.margin_percent != null && composition.pricing.margin_percent < 0
+                            ? 'text-red-600 dark:text-red-400'
+                            : 'text-foreground',
+                        )}
+                      >
+                        {composition.pricing.margin_percent == null
+                          ? '—'
+                          : `${Number(composition.pricing.margin_percent.toFixed(2)).toLocaleString()}%`}
+                      </span>
+                    </span>
+                    <span>
+                      Target{' '}
+                      <span className="font-medium tabular-nums text-foreground">
+                        {Number(composition.pricing.target_margin_percent.toFixed(2)).toLocaleString()}%
+                      </span>
+                    </span>
+                    <span>
+                      Recommended{' '}
+                      <span className="font-medium tabular-nums text-foreground">
+                        {composition.pricing.recommended_price == null
+                          ? '—'
+                          : formatCurrency(composition.pricing.recommended_price)}
+                      </span>
+                    </span>
+                  </div>
+                )}
+
                 <div className="space-y-1">
                   {composition.items.slice(0, 5).map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-2 text-xs">
@@ -242,11 +283,16 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
                   )}
                 </div>
 
-                {canManage && (
-                  <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                  <Button variant="outline" size="sm" onClick={() => setDetailComposition(composition)} className="gap-1.5">
+                    <Eye className="size-3.5" /> View
+                  </Button>
+                  {canManage && (
                     <Button variant="outline" size="sm" onClick={() => openEdit(composition)} className="gap-1.5">
                       <Pencil className="size-3.5" /> New version
                     </Button>
+                  )}
+                  {canManage && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -259,8 +305,8 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
                         : <Power className="size-3.5" />}
                       Deactivate
                     </Button>
-                  </div>
-                )}
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}
@@ -271,6 +317,13 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Version history</CardTitle>
+            {canViewCost && (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Costs in this table are calculated using <span className="font-medium text-foreground">current</span>{' '}
+                ingredient prices, so they show what each version would cost today — not what it
+                cost when it was created.
+              </p>
+            )}
           </CardHeader>
           <CardContent className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-xs">
@@ -280,8 +333,9 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 pr-3 font-medium">Yield</th>
                   <th className="py-2 pr-3 font-medium">Ingredients</th>
-                  {canViewCost && <th className="py-2 pr-3 font-medium">Cost</th>}
-                  <th className="py-2 font-medium">Created</th>
+                  {canViewCost && <th className="py-2 pr-3 font-medium">Current est. cost</th>}
+                  <th className="py-2 pr-3 font-medium">Created</th>
+                  <th className="py-2 font-medium" />
                 </tr>
               </thead>
               <tbody>
@@ -303,6 +357,16 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
                       </td>
                     )}
                     <td className="py-2 text-muted-foreground">{formatDate(composition.created_at)}</td>
+                    <td className="py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDetailComposition(composition)}
+                        className="h-7 gap-1 px-2 text-[11px]"
+                      >
+                        <Eye className="size-3" /> View
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -317,12 +381,31 @@ export default function ProductCompositionPanel({ product, canManage, canViewCos
           open={builderOpen}
           product={product}
           initial={editing}
+          canViewCost={canViewCost}
           onClose={() => setBuilderOpen(false)}
           onSaved={() => {
             void load()
           }}
         />
       )}
+
+      <FormulaDetailDrawer
+        open={detailComposition !== null}
+        onOpenChange={(next) => { if (!next) setDetailComposition(null) }}
+        composition={detailComposition}
+        product={product}
+        canViewCost={canViewCost}
+        canManage={canManage}
+        onEdit={(composition) => {
+          setDetailComposition(null)
+          openEdit(composition)
+        }}
+        onDeactivate={(composition) => {
+          setDetailComposition(null)
+          void handleDeactivate(composition)
+        }}
+        deactivating={deactivating === detailComposition?.id}
+      />
     </div>
   )
 }

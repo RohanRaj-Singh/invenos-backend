@@ -5,6 +5,7 @@ namespace App\Domains\Sales\Services;
 use App\Domains\Composition\DTOs\CompositionItemOverrideData;
 use App\Domains\Composition\DTOs\ExecuteCompositionData;
 use App\Domains\Composition\Services\CompositionExecutionService;
+use App\Domains\Composition\Services\CompositionQuantityMath;
 use App\Domains\Inventory\Services\CostResolver;
 use App\Domains\Inventory\Services\InventoryService;
 use App\Domains\Ledger\CashLedgerService;
@@ -31,6 +32,7 @@ class SaleService
         private readonly InventoryService $inventoryService,
         private readonly ProductUnitService $productUnitService,
         private readonly CompositionExecutionService $compositionExecution,
+        private readonly CompositionQuantityMath $compositionQuantities,
     ) {}
 
     public function search(string $query = '', ?int $customerId = null, ?string $paymentStatus = null, string $dateFrom = '', string $dateTo = '', int $perPage = 25): LengthAwarePaginator
@@ -477,21 +479,9 @@ class SaleService
         Product $product,
         float $baseQuantity,
     ): float {
-        $baseUnit = $product->base_unit_id ?: 'piece';
-        $outputUnit = $composition->output_unit_id ?: $baseUnit;
-        $outputBase = $this->productUnitService->convert(
-            (float) $composition->output_quantity,
-            $outputUnit,
-            $baseUnit,
-        );
-
-        if ($outputBase === null || $outputBase <= 0) {
-            throw ValidationException::withMessages([
-                'items' => "The formula output unit for '{$product->name}' is not compatible with the product base unit.",
-            ]);
-        }
-
-        return round($baseQuantity / $outputBase, 6);
+        // Shared with the POS profitability preview so a preview can never scale
+        // consumption differently from the sale it describes.
+        return $this->compositionQuantities->formulaUnits($composition, $product, $baseQuantity);
     }
 
     /**
@@ -503,17 +493,7 @@ class SaleService
      */
     private function absoluteFormulaOverrides(array $overrides, float $formulaUnits): array
     {
-        if ($formulaUnits <= 0) {
-            throw ValidationException::withMessages([
-                'items' => 'The formula quantity must be greater than zero.',
-            ]);
-        }
-
-        return array_map(fn (CompositionItemOverrideData $override) => new CompositionItemOverrideData(
-            $override->compositionItemId,
-            round($override->quantity * $formulaUnits, 6),
-            $override->unitId,
-        ), $overrides);
+        return $this->compositionQuantities->absoluteOverrides($overrides, $formulaUnits);
     }
 
     private function findIdempotentSale(string $key): ?Sale

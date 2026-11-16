@@ -27,7 +27,7 @@ class DatabaseSeeder extends Seeder
         $permissions = [
             'dashboard.view',
             'products.view', 'products.create', 'products.edit', 'products.delete',
-            'products.composition.view', 'products.composition.manage',
+            'products.composition.view', 'products.composition.manage', 'products.composition.cost',
             'inventory.view', 'inventory.adjust_stock',
             'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.delete',
             'sales.view', 'sales.create', 'sales.edit', 'sales.delete',

@@ -4,6 +4,10 @@ import type {
   ComponentUnitResponse,
   CompositionCostPreview,
   CompositionPayload,
+  DraftCostEstimate,
+  DraftCostInput,
+  FormulaProfitability,
+  FormulaProfitabilityInput,
   ProductComposition,
 } from './types'
 
@@ -77,11 +81,53 @@ export async function searchComponents(params: {
   const response = await axios.get<ComponentSearchResponse>('/inventory/composition/components', {
     params: {
       search: params.search || undefined,
-      exclude_product_id: params.excludeProductId ?? undefined,
+      // Only a real product id may be excluded; 0/absent means "exclude nothing".
+      exclude_product_id: params.excludeProductId && params.excludeProductId > 0
+        ? params.excludeProductId
+        : undefined,
       per_page: params.perPage ?? 12,
     },
   })
   return response.data
+}
+
+/**
+ * Informational profitability for a POS formula line.
+ *
+ * Cost, profit and margin are resolved server-side; this call is skipped
+ * entirely for users without the cost permission.
+ */
+export async function fetchProfitabilityPreview(
+  productId: number,
+  input: FormulaProfitabilityInput,
+): Promise<FormulaProfitability> {
+  const response = await axios.post<{ data: FormulaProfitability }>(
+    `${productBase(productId)}/composition/cost-preview`,
+    input,
+  )
+  return response.data.data
+}
+
+/**
+ * Live cost for an unsaved formula (no product id yet). Approximate by design:
+ * it is shown while the formula is being authored, never used for checkout.
+ */
+export async function previewDraftCost(input: DraftCostInput): Promise<DraftCostEstimate> {
+  const response = await axios.post<{ data: DraftCostEstimate }>(
+    '/inventory/composition/draft-preview',
+    {
+      base_unit_id: input.baseUnitId,
+      output_quantity: input.outputQuantity,
+      output_unit_id: input.baseUnitId,
+      items: input.items.map((item) => ({
+        component_product_id: item.componentProductId,
+        quantity: item.quantity,
+        unit_id: item.unitId,
+        wastage_pct: item.wastagePct,
+      })),
+    },
+  )
+  return response.data.data
 }
 
 export async function fetchComponentUnits(componentProductId: number): Promise<ComponentUnitResponse> {

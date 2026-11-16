@@ -13,6 +13,7 @@ export default function CreateProductPage() {
         categories={categories}
         generatedSku={generatedSku}
         initialSetupFormula={Boolean((props as any).setup_formula)}
+        canViewCost={Boolean((props as any).can_view_cost)}
       />
     </div>
   )

@@ -8,7 +8,8 @@ import { searchComponents } from './api'
 import type { ComponentSearchResult } from './types'
 
 interface ComponentPickerProps {
-  excludeProductId: number
+  /** Omit or pass 0 when there is no product to exclude (e.g. before save). */
+  excludeProductId?: number | null
   excludedComponentIds: number[]
   onSelect: (component: ComponentSearchResult) => void
   disabled?: boolean

@@ -60,6 +60,8 @@ export default function ProductDetailsPage() {
   const id = url.split('/').pop() || ''
   const authUser = (props as any).auth?.user ?? null
   const isAdmin = authUser?.role === 'admin'
+  // Decided by the server so the UI cannot drift from the API's withholding.
+  const canViewCost = Boolean((props as any).can_view_cost)
   const [activeSection, setActiveSection] = useState(() => {
     const query = url.split('?')[1] || ''
     return new URLSearchParams(query).get('tab') === 'composition' ? 'composition' : 'overview'
@@ -445,9 +447,11 @@ export default function ProductDetailsPage() {
             base_unit_id: product.base_unit_id || 'piece',
             base_unit_name: (product as any).base_unit_name || undefined,
             default_price: sellingPrice || undefined,
+            sku: product.sku || null,
+            status: (product as any).status || null,
           }}
           canManage={isAdmin && !isArchived}
-          canViewCost={isAdmin}
+          canViewCost={canViewCost}
         />
       )}
 

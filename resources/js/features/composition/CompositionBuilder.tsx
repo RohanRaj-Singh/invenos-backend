@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   Calculator,
@@ -53,6 +53,8 @@ interface CompositionBuilderProps {
   initial: ProductComposition | null
   onClose: () => void
   onSaved: (composition: ProductComposition) => void
+  /** Only users who may see cost get the live estimate. */
+  canViewCost?: boolean
 }
 
 interface BuilderRow {
@@ -95,6 +97,7 @@ export default function CompositionBuilder({
   initial,
   onClose,
   onSaved,
+  canViewCost = true,
 }: CompositionBuilderProps) {
   // Herbal formula templates are always ingredient-consumption formulas.
   // Assembly/manufacturing remains in the backend for other business types.
@@ -136,7 +139,6 @@ export default function CompositionBuilder({
 
   const markDirty = () => {
     setDirty(true)
-    setPreview(null)
   }
 
   useEffect(() => {
@@ -211,15 +213,15 @@ export default function CompositionBuilder({
     markDirty()
   }
 
-  function buildPayload(): CompositionPayload | null {
+  function buildPayload(silent = false): CompositionPayload | null {
     const quantity = Number(outputQuantity)
     if (!Number.isFinite(quantity) || quantity <= 0) {
-      setError('Output quantity must be greater than zero.')
+      if (!silent) setError('Output quantity must be greater than zero.')
       return null
     }
 
     if (rows.length === 0) {
-      setError('Add at least one ingredient before saving.')
+      if (!silent) setError('Add at least one ingredient before saving.')
       return null
     }
 
@@ -227,13 +229,13 @@ export default function CompositionBuilder({
     for (const row of rows) {
       const rowQuantity = Number(row.quantity)
       if (!Number.isFinite(rowQuantity) || rowQuantity <= 0) {
-        setError(`Enter a valid quantity for ${row.component.name}.`)
+        if (!silent) setError(`Enter a valid quantity for ${row.component.name}.`)
         return null
       }
 
       const wastage = Number(row.wastage)
       if (!Number.isFinite(wastage) || wastage < 0 || wastage > 100) {
-        setError(`Wastage for ${row.component.name} must be between 0 and 100.`)
+        if (!silent) setError(`Wastage for ${row.component.name} must be between 0 and 100.`)
         return null
       }
 
@@ -257,20 +259,51 @@ export default function CompositionBuilder({
     }
   }
 
-  async function handlePreview() {
-    setError(null)
-    const payload = buildPayload()
-    if (!payload) return
+  // Live cost: refresh as soon as the formula changes. Ingredient lines show
+  // their own cost, so making the user press "Preview cost" first only produced
+  // a screen full of "Cost unavailable" for a formula that was perfectly costable.
+  const previewSignature = useMemo(() => JSON.stringify({
+    rows: rows.map((row) => [row.component.id, row.quantity, row.unitId, row.wastage]),
+    quantity: outputQuantity,
+    unit: outputUnitId,
+  }), [rows, outputQuantity, outputUnitId])
 
-    setPreviewing(true)
-    try {
-      setPreview(await previewComposition(product.id, payload))
-    } catch (err) {
-      setError(compositionErrorMessage(err))
-    } finally {
+  const previewRequestId = useRef(0)
+
+  useEffect(() => {
+    if (!canViewCost) {
+      previewRequestId.current += 1
+      setPreview(null)
       setPreviewing(false)
+
+      return
     }
-  }
+
+    const requestId = previewRequestId.current + 1
+    previewRequestId.current = requestId
+
+    const timer = setTimeout(() => {
+      // Silent: a half-typed quantity must not surface a validation error.
+      const payload = buildPayload(true)
+      if (!payload) return
+
+      setPreviewing(true)
+      previewComposition(product.id, payload)
+        .then((result) => {
+          if (previewRequestId.current !== requestId) return
+          setPreview(result)
+        })
+        .catch(() => {
+          if (previewRequestId.current !== requestId) return
+          setPreview(null)
+        })
+        .finally(() => {
+          if (previewRequestId.current === requestId) setPreviewing(false)
+        })
+    }, 450)
+
+    return () => clearTimeout(timer)
+  }, [previewSignature, canViewCost, product.id])
 
   async function handleSave() {
     setError(null)
@@ -479,10 +512,12 @@ export default function CompositionBuilder({
                         <span className="text-muted-foreground">
                           {unit ? `${row.quantity || 0} ${unit.label} × ${unit.factor} = ${Number(base.toFixed(6))} ${row.component.base_unit_name}` : ''}
                         </span>
-                        <span className={cn('font-medium', cost?.line_cost == null ? 'text-muted-foreground' : 'text-foreground')}>
-                          {cost?.line_cost == null
-                            ? 'Cost unavailable'
-                            : `Estimated ${formatCurrency(cost.line_cost)}`}
+                        <span className={cn('font-medium', preview && cost?.line_cost != null ? 'text-foreground' : 'text-muted-foreground')}>
+                          {preview == null
+                            ? (previewing ? 'Calculating…' : '—')
+                            : cost?.line_cost == null
+                              ? 'Cost unavailable'
+                              : `Estimated ${formatCurrency(cost.line_cost)}`}
                         </span>
                       </div>
                     </div>
@@ -514,7 +549,13 @@ export default function CompositionBuilder({
             />
           </div>
 
-          {preview && (
+          {canViewCost && previewing && !preview && (
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+              <Loader2 className="size-3.5 animate-spin" /> Calculating cost…
+            </div>
+          )}
+
+          {canViewCost && preview && (
             <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">Estimated cost</span>
@@ -541,21 +582,51 @@ export default function CompositionBuilder({
                   Some components have no reliable cost yet. The estimate is incomplete.
                 </p>
               )}
+
+              {/* Pricing guidance — server-computed, never applied automatically */}
+              {preview.pricing && (
+                <div className="mt-3 space-y-1 border-t border-border pt-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Target margin</span>
+                    <span className="tabular-nums font-medium">
+                      {Number(preview.pricing.target_margin_percent.toFixed(2)).toLocaleString()}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">Recommended price</span>
+                    <span className="tabular-nums text-sm font-semibold">
+                      {preview.pricing.recommended_price == null
+                        ? 'Not available'
+                        : formatCurrency(preview.pricing.recommended_price)}
+                    </span>
+                  </div>
+                  {!preview.pricing.available && (
+                    <p className="text-[11px] text-amber-600">
+                      A recommendation needs a complete ingredient cost.
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Guidance only — the selling price is set on the product and is not changed here.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <SheetFooter className="border-t border-border">
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-            <Button type="button" variant="outline" onClick={handlePreview} disabled={saving || previewing}>
-              {previewing ? <Loader2 className="size-4 animate-spin" /> : <Calculator className="size-4" />}
-              Preview cost
-            </Button>
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              {previewing ? <Loader2 className="size-3.5 animate-spin" /> : <Calculator className="size-3.5" />}
+              {canViewCost
+                ? (previewing ? 'Calculating cost…' : 'Cost updates automatically')
+                : 'Save the formula to continue'}
+            </div>
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => requestClose(false)} disabled={saving}>
                 Cancel
               </Button>
-              <Button type="button" onClick={handleSave} disabled={saving || previewing}>
+              <Button type="button" onClick={handleSave} disabled={saving}>
                 {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                 {saving ? 'Saving...' : 'Save formula'}
               </Button>

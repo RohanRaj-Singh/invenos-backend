@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Domains\Returns\DTOs\ReturnCreateData;
 use App\Domains\Returns\Services\ReturnService;
+use App\Models\ProductComposition;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -77,19 +78,61 @@ class ReturnWorkflowController extends Controller
 
     public function show(int $id): Response
     {
-        $return = $this->returns->get($id);
+        $return = $this->returns->get($id)->load([
+            'componentRecoveries.component',
+            'componentRecoveries.inventoryTransaction',
+            'items',
+        ]);
+
+        $canViewCost = Gate::allows('cost', ProductComposition::class);
+        $payload = $return->toArray();
+
+        if (! $canViewCost) {
+            // Recovery and ingredient cost are financial data; withhold them
+            // rather than relying on the page not to render them.
+            $payload = $this->withoutCostKeys($payload);
+        }
 
         return Inertia::render(
             $return->type === 'SALE' ? 'returns/SaleReturnDetail' : 'returns/PurchaseReturnDetail',
             [
-                'return' => $return->load([
-                    'componentRecoveries.component',
-                    'componentRecoveries.inventoryTransaction',
-                    'items',
-                ]),
+                'return' => $payload,
                 'canProcess' => Gate::allows('returns.process'),
+                'can_view_cost' => $canViewCost,
             ],
         );
+    }
+
+    /** Cost-bearing keys that must never reach a viewer without the cost permission. */
+    private const COST_KEYS = [
+        'cost_price', 'cost_complete', 'uncosted_quantity', 'uncosted_qty',
+        'unit_cost', 'unit_cost_base', 'total_cost', 'line_cost',
+        'average_cost', 'opening_cost', 'last_purchase_cost', 'default_purchase_cost',
+        'cost_basis', 'estimated_cost', 'estimated_unit_cost',
+    ];
+
+    /**
+     * Recursively remove cost keys. Removing them entirely (rather than nulling)
+     * keeps "no cost recorded" indistinguishable from "cost hidden".
+     *
+     * @param  array<string, mixed>  $value
+     * @return array<string, mixed>
+     */
+    private function withoutCostKeys(array $value): array
+    {
+        foreach ($value as $key => $item) {
+            if (in_array($key, self::COST_KEYS, true)) {
+                unset($value[$key]);
+
+                continue;
+            }
+
+            if (is_array($item)) {
+                $value[$key] = $this->withoutCostKeys($item);
+            }
+        }
+
+        return $value;
     }
 
     public function complete(int $id): RedirectResponse

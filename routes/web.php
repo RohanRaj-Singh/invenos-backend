@@ -56,11 +56,13 @@ Route::middleware('auth')->group(function () {
         Route::get('/product/{product}/composition/{composition}', [CompositionController::class, 'show'])->name('inventory.composition.show');
         Route::post('/product/{product}/composition', [CompositionController::class, 'store'])->name('inventory.composition.store');
         Route::post('/product/{product}/composition/preview', [CompositionController::class, 'preview'])->name('inventory.composition.preview');
+        Route::post('/product/{product}/composition/cost-preview', [CompositionController::class, 'costPreview'])->name('inventory.composition.cost_preview');
         Route::post('/product/{product}/composition/{composition}/execute', [CompositionController::class, 'execute'])->name('inventory.composition.execute');
         Route::put('/product/{product}/composition/{composition}', [CompositionController::class, 'update'])->name('inventory.composition.update');
         Route::delete('/product/{product}/composition/{composition}', [CompositionController::class, 'deactivate'])->name('inventory.composition.deactivate');
         Route::get('/composition/components', [CompositionController::class, 'searchComponents'])->name('inventory.composition.components');
         Route::get('/composition/units', [CompositionController::class, 'unitOptions'])->name('inventory.composition.units');
+        Route::post('/composition/draft-preview', [CompositionController::class, 'draftPreview'])->name('inventory.composition.draft_preview');
     });
 
     Route::prefix('production')->group(function () {
@@ -238,6 +240,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/pos', fn () => Inertia::render('settings/POS'))->name('settings.pos');
         Route::get('/inventory', fn () => Inertia::render('settings/Inventory'))->name('settings.inventory');
         Route::get('/sales', fn () => Inertia::render('settings/Sales'))->name('settings.sales');
+        Route::get('/composition', [SettingsController::class, 'edit'])->name('settings.composition')->defaults('group', 'composition');
         Route::get('/purchases', fn () => Inertia::render('settings/Purchases'))->name('settings.purchases');
         Route::get('/receipt', fn () => Inertia::render('settings/Receipt'))->name('settings.receipt');
         Route::get('/users', [SettingsController::class, 'users'])->middleware('can:settings.update')->name('settings.users');

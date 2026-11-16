@@ -29,6 +29,10 @@ class UpdateSettingsRequest extends FormRequest
             'inventory.low_stock_threshold' => 'nullable|numeric|min:0',
             'sales' => 'nullable|array',
             'sales.invoice_prefix' => 'nullable|string|max:20',
+            // A gross margin must stay below 100%, otherwise the recommended
+            // price becomes infinite. Decimals are allowed.
+            'composition' => 'nullable|array',
+            'composition.target_margin_percent' => 'nullable|numeric|min:0|lt:100',
             'purchases' => 'nullable|array',
             'purchases.purchase_prefix' => 'nullable|string|max:20',
             'backup' => 'nullable|array',

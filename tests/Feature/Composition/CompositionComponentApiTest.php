@@ -62,6 +62,31 @@ class CompositionComponentApiTest extends TestCase
         $this->assertNotContains($sugar->id, $ids);
     }
 
+    public function test_component_search_treats_zero_exclusion_as_absent(): void
+    {
+        // The inline "Add Formula" screen has no product id yet and sends
+        // exclude_product_id=0. That must not fail validation and break search.
+        $admin = $this->admin();
+        $flour = $this->product(['name' => 'Zero Exclude Flour', 'sku' => 'ZEX-1']);
+
+        $this->actingAs($admin)
+            ->getJson('/inventory/composition/components?search=Zero%20Exclude&exclude_product_id=0&per_page=10')
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $flour->id);
+    }
+
+    public function test_component_search_still_excludes_a_real_product_id(): void
+    {
+        $admin = $this->admin();
+        $parent = $this->product(['name' => 'Real Parent', 'sku' => 'RLP-1']);
+
+        $response = $this->actingAs($admin)
+            ->getJson("/inventory/composition/components?search=Real%20Parent&exclude_product_id={$parent->id}")
+            ->assertOk();
+
+        $this->assertNotContains($parent->id, collect($response->json('data'))->pluck('id')->all());
+    }
+
     public function test_component_search_matches_sku_and_barcode(): void
     {
         $admin = $this->admin();

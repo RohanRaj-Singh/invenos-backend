@@ -314,9 +314,13 @@ class CompositionManufacturingTest extends TestCase
         $raw = $this->product('Raw', 'ml', 100, 5);
         $composition = $this->composition($finished, [$this->item($raw, 3, 10)]);
         $order = $this->order($finished, $composition, 2);
-        app(ProductionService::class)->execute($order, 2, 'piece', 'prod-report', 'tester', null, '2026-11-15');
+        // The report filters on completed_at, which comes from now(). Using a
+        // fixed calendar date made this test fail as soon as the clock advanced,
+        // so derive the window from the same clock the service writes with.
+        $today = now()->format('Y-m-d');
+        app(ProductionService::class)->execute($order, 2, 'piece', 'prod-report', 'tester', null, $today);
 
-        $filters = new ReportFilters(dateFrom: '2026-11-15', dateTo: '2026-11-15');
+        $filters = new ReportFilters(dateFrom: $today, dateTo: $today);
         $report = app(ProductionReportService::class)->componentUsage($filters);
         $row = $report['rows'][0];
 

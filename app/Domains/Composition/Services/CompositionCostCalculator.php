@@ -42,6 +42,18 @@ class CompositionCostCalculator
     }
 
     /**
+     * Cost a draft that has no saved product yet (the create screen). The base
+     * unit comes from the form instead of a product row, so the same line maths
+     * and nested-composition handling apply as for a persisted formula.
+     *
+     * @param  CompositionItemData[]  $items
+     */
+    public function estimateDraft(array $items, float $outputQuantity, ?string $outputUnitId, string $baseUnitId): array
+    {
+        return $this->estimateItemsForBaseUnit($baseUnitId, $items, $outputQuantity, $outputUnitId, []);
+    }
+
+    /**
      * @param  CompositionItemData[]  $items
      * @param  int[]  $visited
      */
@@ -53,10 +65,25 @@ class CompositionCostCalculator
             throw ValidationException::withMessages(['product_id' => 'The composition product does not exist.']);
         }
 
+        return $this->estimateItemsForBaseUnit(
+            $product->base_unit_id ?: 'piece',
+            $items,
+            $outputQuantity,
+            $outputUnitId,
+            $visited,
+        );
+    }
+
+    /**
+     * @param  CompositionItemData[]  $items
+     * @param  int[]  $visited
+     */
+    private function estimateItemsForBaseUnit(string $formulaBaseUnitId, array $items, float $outputQuantity, ?string $outputUnitId, array $visited): array
+    {
         $outputBaseQuantity = $this->units->convert(
             $outputQuantity,
-            $outputUnitId ?: ($product->base_unit_id ?: 'piece'),
-            $product->base_unit_id ?: 'piece',
+            $outputUnitId ?: $formulaBaseUnitId,
+            $formulaBaseUnitId,
         );
 
         if ($outputBaseQuantity === null || $outputBaseQuantity <= 0) {
@@ -160,7 +187,7 @@ class CompositionCostCalculator
 
         return [
             'output_quantity' => $outputQuantity,
-            'output_unit_id' => $outputUnitId ?: ($product->base_unit_id ?: 'piece'),
+            'output_unit_id' => $outputUnitId ?: $formulaBaseUnitId,
             'output_quantity_base' => $outputBaseQuantity,
             'total_cost' => $totalCost,
             'unit_cost' => $totalCost !== null ? $totalCost / $outputBaseQuantity : null,

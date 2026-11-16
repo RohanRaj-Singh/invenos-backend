@@ -2,17 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Domains\Composition\DTOs\CompositionItemOverrideData;
 use App\Domains\Composition\DTOs\ExecuteCompositionData;
 use App\Domains\Composition\Exceptions\InsufficientComponentStockException;
 use App\Domains\Composition\Services\CompositionCostCalculator;
 use App\Domains\Composition\Services\CompositionExecutionService;
 use App\Domains\Composition\Services\CompositionPayloadMapper;
+use App\Domains\Composition\Services\CompositionPricingService;
 use App\Domains\Composition\Services\CompositionService;
 use App\Domains\Composition\Services\CompositionValidator;
+use App\Domains\Composition\Services\PosFormulaProfitabilityService;
 use App\Domains\Products\Services\ProductUnitService;
 use App\Http\Requests\Composition\ComponentSearchRequest;
 use App\Http\Requests\Composition\ComponentUnitRequest;
+use App\Http\Requests\Composition\DraftCompositionPreviewRequest;
 use App\Http\Requests\Composition\ExecuteCompositionRequest;
+use App\Http\Requests\Composition\PreviewProfitabilityRequest;
 use App\Http\Requests\Composition\SaveCompositionRequest;
 use App\Http\Resources\CompositionRunResource;
 use App\Http\Resources\ProductCompositionResource;
@@ -21,6 +26,7 @@ use App\Models\ProductComposition;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class CompositionController extends Controller
 {
@@ -30,6 +36,7 @@ class CompositionController extends Controller
         private readonly CompositionPayloadMapper $mapper,
         private readonly CompositionCostCalculator $costs,
         private readonly ProductUnitService $units,
+        private readonly PosFormulaProfitabilityService $profitability,
     ) {}
 
     public function index(Product $product): JsonResponse
@@ -38,7 +45,7 @@ class CompositionController extends Controller
 
         $compositions = ProductComposition::query()
             ->where('product_id', $product->id)
-            ->with(['items.component', 'product'])
+            ->with(['items.component', 'product.sellingUnits'])
             ->orderByDesc('version')
             ->get();
 
@@ -111,14 +118,103 @@ class CompositionController extends Controller
         return $this->respond($this->compositions->deactivate($composition->id));
     }
 
+    /**
+     * Read-only profitability for a POS formula line with runtime quantities.
+     *
+     * Informational only: no locks, no writes, and never used by checkout.
+     */
+    public function costPreview(
+        PreviewProfitabilityRequest $request,
+        Product $product,
+    ): JsonResponse {
+        $this->authorize('view', ProductComposition::class);
+        // The whole payload is cost-derived, so it needs the cost permission.
+        $this->authorize('cost', ProductComposition::class);
+
+        $data = $request->validated();
+
+        $composition = isset($data['composition_id'])
+            ? ProductComposition::query()
+                ->where('product_id', $product->id)
+                ->whereKey($data['composition_id'])
+                ->first()
+            : $this->compositions->getActive($product->id, ProductComposition::KIND_CONSUMPTION);
+
+        if (
+            $composition === null
+            || ! $composition->is_active
+            || $composition->kind !== ProductComposition::KIND_CONSUMPTION
+        ) {
+            throw ValidationException::withMessages([
+                'composition_id' => 'This product has no active formula to preview.',
+            ]);
+        }
+
+        $product->loadMissing('sellingUnits');
+
+        $overrides = array_map(
+            fn (array $override) => CompositionItemOverrideData::fromArray($override),
+            $data['overrides'] ?? [],
+        );
+
+        return response()->json([
+            'data' => $this->profitability->preview(
+                product: $product,
+                composition: $composition,
+                quantity: (float) $data['quantity'],
+                sellingUnitId: isset($data['selling_unit_id']) ? (int) $data['selling_unit_id'] : null,
+                unitPrice: isset($data['unit_price']) ? (float) $data['unit_price'] : null,
+                discountPercent: (float) ($data['discount_percent'] ?? 0),
+                discountAmount: isset($data['discount_amount']) ? (float) $data['discount_amount'] : null,
+                overrides: $overrides,
+                optionalItemIds: array_map('intval', $data['optional_item_ids'] ?? []),
+            ),
+        ]);
+    }
+
     public function preview(SaveCompositionRequest $request, Product $product): JsonResponse
     {
         $this->authorize('view', ProductComposition::class);
+        // The whole response is cost data, so it needs the cost permission too;
+        // otherwise a viewer could bypass the resource-level withholding.
+        $this->authorize('cost', ProductComposition::class);
 
         $data = $this->mapper->toSaveData($request->validated(), $product->id);
         $this->validator->validate($data);
 
-        return response()->json(['data' => $this->costs->estimate($data)]);
+        $estimate = $this->costs->estimate($data);
+
+        // Pricing guidance rides along so the builder never has to reimplement
+        // the margin maths on the client.
+        $product->loadMissing('sellingUnits');
+        $sellingUnit = $product->sellingUnits->firstWhere('is_default', true)
+            ?? $product->sellingUnits->first();
+        $estimate['pricing'] = app(CompositionPricingService::class)
+            ->summarizeFromCost($estimate, $sellingUnit);
+
+        return response()->json(['data' => $estimate]);
+    }
+
+    /**
+     * Live costing for a formula that has not been saved yet. The create screen
+     * needs a cost while ingredients are being entered, and there is no product
+     * id to scope `preview` to; nothing is persisted and no product is required.
+     */
+    public function draftPreview(DraftCompositionPreviewRequest $request): JsonResponse
+    {
+        $this->authorize('cost', ProductComposition::class);
+
+        $validated = $request->validated();
+        $data = $this->mapper->toSaveData($validated, 0);
+
+        return response()->json([
+            'data' => $this->costs->estimateDraft(
+                $data->items,
+                $data->outputQuantity,
+                $data->outputUnitId,
+                (string) ($validated['base_unit_id'] ?? 'piece'),
+            ),
+        ]);
     }
 
     public function execute(
@@ -246,7 +342,9 @@ class CompositionController extends Controller
 
     private function respond(ProductComposition $composition, int $status = 200): JsonResponse
     {
-        $composition->loadMissing(['items.component', 'product']);
+        // sellingUnits powers the pricing guidance; load it with the composition
+        // so a version list does not issue one query per row.
+        $composition->loadMissing(['items.component', 'product.sellingUnits']);
 
         return response()->json([
             'data' => (new ProductCompositionResource(

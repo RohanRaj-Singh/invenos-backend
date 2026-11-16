@@ -281,6 +281,7 @@ export default function Sidebar({ mobile, onClose }: SidebarProps) {
               <button onClick={() => handleNav('/settings/pos')} className={subLinkClass('/settings/pos')}>POS</button>
               <button onClick={() => handleNav('/settings/inventory')} className={subLinkClass('/settings/inventory')}>Inventory</button>
               <button onClick={() => handleNav('/settings/sales')} className={subLinkClass('/settings/sales')}>Sales</button>
+              <button onClick={() => handleNav('/settings/composition')} className={subLinkClass('/settings/composition')}>Formula Pricing</button>
               <button onClick={() => handleNav('/settings/purchases')} className={subLinkClass('/settings/purchases')}>Purchases</button>
               <button onClick={() => handleNav('/settings/receipt')} className={subLinkClass('/settings/receipt')}>Receipt</button>
               <button onClick={() => handleNav('/settings/users')} className={subLinkClass('/settings/users')}>Users & Permissions</button>

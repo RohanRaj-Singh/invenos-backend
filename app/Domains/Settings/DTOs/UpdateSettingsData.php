@@ -11,6 +11,7 @@ class UpdateSettingsData
         public readonly ?array $sales = null,
         public readonly ?array $purchases = null,
         public readonly ?array $receipt = null,
+        public readonly ?array $composition = null,
     ) {}
 
     public static function fromRequest(array $data): self
@@ -22,6 +23,7 @@ class UpdateSettingsData
             sales: $data['sales'] ?? null,
             purchases: $data['purchases'] ?? null,
             receipt: $data['receipt'] ?? null,
+            composition: $data['composition'] ?? null,
         );
     }
 
@@ -34,6 +36,7 @@ class UpdateSettingsData
             'sales' => $this->sales,
             'purchases' => $this->purchases,
             'receipt' => $this->receipt,
+            'composition' => $this->composition,
         ], fn ($v) => $v !== null);
     }
 }

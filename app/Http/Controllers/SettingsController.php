@@ -18,16 +18,17 @@ class SettingsController extends Controller
     public function index(): Response
     {
         $settings = $this->settingService->get();
+
         return Inertia::render('settings/Index', ['settings' => $settings]);
     }
 
     public function edit(string $group = 'business'): Response
     {
         $settings = $this->settingService->get();
-        $allowed = ['business', 'pos', 'inventory', 'sales', 'purchases', 'receipt'];
+        $allowed = ['business', 'pos', 'inventory', 'sales', 'purchases', 'receipt', 'composition'];
         $group = in_array($group, $allowed) ? $group : 'business';
 
-        return Inertia::render("settings/" . ucfirst($group), [
+        return Inertia::render('settings/'.ucfirst($group), [
             'settings' => $settings,
             'group' => $group,
         ]);

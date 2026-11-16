@@ -7,6 +7,7 @@ const SETTINGS_SECTIONS = [
   { id: 'pos', label: 'POS', href: '/settings/pos' },
   { id: 'inventory', label: 'Inventory', href: '/settings/inventory' },
   { id: 'sales', label: 'Sales', href: '/settings/sales' },
+  { id: 'composition', label: 'Formula Pricing', href: '/settings/composition' },
   { id: 'purchases', label: 'Purchases', href: '/settings/purchases' },
   { id: 'receipt', label: 'Receipt', href: '/settings/receipt' },
   { id: 'backup', label: 'Backup & Restore', href: '/settings/backup' },

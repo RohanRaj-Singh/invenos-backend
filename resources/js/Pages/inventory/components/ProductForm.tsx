@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { router, usePage } from '@inertiajs/react'
 import { toast } from 'sonner'
-import { Save, ChevronDown, ChevronUp, Search, Plus, Settings2, Beaker, Package } from 'lucide-react'
+import { Save, ChevronDown, ChevronUp, Search, Plus, Settings2, Beaker, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -10,6 +10,10 @@ import { getUnit, getBaseUnitOptions, getDefaultUnitForCategory } from '@/lib/un
 import { resolveUnitDisplay, formatStock } from '@/lib/product-unit-display'
 import { calculateMargin } from '@/lib/product-adapter'
 import UnitRelationEditor from '@/components/unit/UnitRelationEditor'
+import ComponentPicker from '@/features/composition/ComponentPicker'
+import { previewDraftCost } from '@/features/composition/api'
+import type { ComponentSearchResult, DraftCostEstimate } from '@/features/composition/types'
+import { formatCurrency } from '@/lib/format'
 import { transformRelationships } from '@/lib/unit-relation-transformer'
 import type { UnitRelation } from '@/lib/unit-relation-validator'
 import type { SellingUnit } from '@/types'
@@ -20,6 +24,8 @@ interface ProductFormProps {
   product?: Record<string, any> | null
   generatedSku?: string
   initialSetupFormula?: boolean
+  /** Only users who may see cost get live formula costing. */
+  canViewCost?: boolean
 }
 
 // ── Helpers ──
@@ -39,13 +45,45 @@ function generateSku(category: string, sequence: number): string {
 
 // ── Main Component ──
 
-export default function ProductForm({ mode, categories = [], product = null, generatedSku, initialSetupFormula = false }: ProductFormProps) {
+interface DraftIngredient {
+  key: string
+  componentId: number
+  name: string
+  unitId: string
+  unitLabel: string
+  quantity: string
+  wastage: string
+  unitOptions: { id: string; label: string }[]
+}
+
+let draftIngredientSeq = 0
+
+function draftIngredientFrom(component: ComponentSearchResult): DraftIngredient {
+  draftIngredientSeq += 1
+  const options = (component.unit_options ?? []).map((unit) => ({ id: unit.id, label: unit.label }))
+
+  return {
+    key: `ing-${draftIngredientSeq}`,
+    componentId: component.id,
+    name: component.name,
+    unitId: component.base_unit_id,
+    unitLabel: component.base_unit_name,
+    quantity: '1',
+    wastage: '',
+    unitOptions: options.length > 0
+      ? options
+      : [{ id: component.base_unit_id, label: component.base_unit_name }],
+  }
+}
+
+export default function ProductForm({ mode, categories = [], product = null, generatedSku, initialSetupFormula = false, canViewCost = false }: ProductFormProps) {
   const isEditing = mode === 'edit'
 
-  // ── Creation kind: a physical product holds stock; a formula is an
-  // ingredient template. Composition needs a saved product id, so the formula
-  // itself is authored on the product page after this save.
-  const [formulaMode, setFormulaMode] = useState(initialSetupFormula)
+  // ── Creation kind ──
+  // Fixed by the screen that opened this form: "Add Product" creates a physical
+  // product, "Add Formula" creates an ingredient template. There is no toggle,
+  // so the two workflows never overlap.
+  const formulaMode = initialSetupFormula
 
   // ── Quick Entry state ──
   const [name, setName] = useState(product?.name || '')
@@ -64,6 +102,90 @@ export default function ProductForm({ mode, categories = [], product = null, gen
   )
   const [allowNegativeStock, setAllowNegativeStock] = useState(product?.allow_negative_stock ?? true)
   const [description, setDescription] = useState(product?.description || '')
+
+  // ── Inline formula (create only) ──
+  // A composition needs a product id, so it can only be created in the same
+  // request — never before the product exists. These rows are sent along with
+  // the product and committed together.
+  const [ingredients, setIngredients] = useState<DraftIngredient[]>([])
+  const [yieldQuantity, setYieldQuantity] = useState('1')
+  const [formulaNotes, setFormulaNotes] = useState('')
+
+  const addIngredient = useCallback((component: ComponentSearchResult) => {
+    setIngredients((prev) => (
+      prev.some((row) => row.componentId === component.id)
+        ? prev
+        : [...prev, draftIngredientFrom(component)]
+    ))
+  }, [])
+
+  const removeIngredient = useCallback((key: string) => {
+    setIngredients((prev) => prev.filter((row) => row.key !== key))
+  }, [])
+
+  const updateIngredient = useCallback((key: string, patch: Partial<DraftIngredient>) => {
+    setIngredients((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)))
+  }, [])
+
+  // ── Live formula cost (create only) ──
+  // Cost is resolved by the server so the create screen uses the same maths as
+  // the saved formula; it is never derived from ingredient prices on the client.
+  const [draftCost, setDraftCost] = useState<DraftCostEstimate | null>(null)
+  const [costLoading, setCostLoading] = useState(false)
+  const [costError, setCostError] = useState(false)
+  const costRequestId = useRef(0)
+
+  useEffect(() => {
+    if (!formulaMode || isEditing || !canViewCost || ingredients.length === 0) {
+      costRequestId.current += 1
+      setDraftCost(null)
+      setCostError(false)
+      setCostLoading(false)
+
+      return
+    }
+
+    const parsed = ingredients.map((row) => ({
+      componentProductId: row.componentId,
+      quantity: Number(row.quantity),
+      unitId: row.unitId,
+      wastagePct: Number(row.wastage || 0),
+    }))
+
+    if (parsed.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0)) {
+      costRequestId.current += 1
+      setDraftCost(null)
+
+      return
+    }
+
+    const requestId = costRequestId.current + 1
+    costRequestId.current = requestId
+
+    const timer = setTimeout(() => {
+      setCostLoading(true)
+      previewDraftCost({
+        baseUnitId,
+        outputQuantity: Number(yieldQuantity) > 0 ? Number(yieldQuantity) : 1,
+        items: parsed,
+      })
+        .then((estimate) => {
+          if (costRequestId.current !== requestId) return
+          setDraftCost(estimate)
+          setCostError(false)
+        })
+        .catch(() => {
+          if (costRequestId.current !== requestId) return
+          setDraftCost(null)
+          setCostError(true)
+        })
+        .finally(() => {
+          if (costRequestId.current === requestId) setCostLoading(false)
+        })
+    }, 400)
+
+    return () => clearTimeout(timer)
+  }, [formulaMode, isEditing, canViewCost, ingredients, yieldQuantity, baseUnitId])
 
   // ── Unit relationships ──
   const [relationships, setRelationships] = useState<UnitRelation[]>([])
@@ -192,8 +314,30 @@ export default function ProductForm({ mode, categories = [], product = null, gen
       low_stock_threshold: lowStockThreshold.trim() !== '' && Number.isFinite(Number(lowStockThreshold))
         ? Number(lowStockThreshold)
         : (isEditing ? (product?.low_stock_threshold ?? 0) : 0),
-      default_purchase_cost: purchaseCost ? parseFloat(purchaseCost) : null,
+      // A new formula has no purchase cost. On edit the existing value is
+      // preserved untouched — this only stops a stale entry becoming a cost.
+      default_purchase_cost: formulaMode && !isEditing
+        ? null
+        : (purchaseCost ? parseFloat(purchaseCost) : null),
       allow_negative_stock: allowNegativeStock,
+      // Sent only when creating a formula with ingredients entered up front; the
+      // server creates product and composition in one transaction.
+      ...(!isEditing && formulaMode && ingredients.length > 0 ? {
+        composition: {
+          kind: 'consumption',
+          name: name.trim() || null,
+          output_quantity: Number(yieldQuantity) || 1,
+          output_unit_id: baseUnitId,
+          notes: formulaNotes.trim() || null,
+          items: ingredients.map((row, index) => ({
+            component_product_id: row.componentId,
+            quantity: Number(row.quantity),
+            unit_id: row.unitId,
+            wastage_pct: row.wastage.trim() === '' ? 0 : Number(row.wastage),
+            sort_order: index,
+          })),
+        },
+      } : {}),
       ...(isEditing ? {} : {
         stock_quantity: stockQty,
         status: stockQty === 0 ? 'out-of-stock' : 'in-stock',
@@ -204,6 +348,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     relationships, sellingPrice,
     openingStock, lowStockThreshold, purchaseCost, allowNegativeStock,
     isEditing, product, categories, formulaMode,
+    ingredients, yieldQuantity, formulaNotes,
   ])
 
   // ── Save handlers ──
@@ -214,18 +359,44 @@ export default function ProductForm({ mode, categories = [], product = null, gen
       nameInputRef.current?.focus()
       return false
     }
+
+    // Only when ingredients are being entered now; empty is valid (add later).
+    if (!isEditing && formulaMode) {
+      for (const row of ingredients) {
+        if (!Number.isFinite(Number(row.quantity)) || Number(row.quantity) <= 0) {
+          toast.error(`Enter a quantity greater than zero for ${row.name}`)
+          return false
+        }
+        if (row.wastage.trim() !== '') {
+          const wastage = Number(row.wastage)
+          if (!Number.isFinite(wastage) || wastage < 0 || wastage > 100) {
+            toast.error(`Wastage for ${row.name} must be between 0 and 100`)
+            return false
+          }
+        }
+      }
+
+      if (ingredients.length > 0 && (!Number.isFinite(Number(yieldQuantity)) || Number(yieldQuantity) <= 0)) {
+        toast.error('Formula yield must be greater than zero')
+        return false
+      }
+    }
+
     return true
-  }, [name, formulaMode])
+  }, [name, formulaMode, isEditing, ingredients, yieldQuantity])
 
   const handleSave = useCallback((stay = false) => {
     if (!validate()) return
 
     setSaving(true)
     const payload = buildPayload()
+    // "Save & Add Next" makes no sense when a formula is being created inline:
+    // the user should land on the formula they just built.
+    const effectiveStay = stay && !payload.composition
     const fullPayload: Record<string, any> = {
       ...payload,
-      _stay: stay,
-      ...(!isEditing && !stay && formulaMode ? { _setup_formula: true } : {}),
+      _stay: effectiveStay,
+      ...(!isEditing && !effectiveStay && formulaMode && !payload.composition ? { _setup_formula: true } : {}),
     }
     if (product?.id) {
       fullPayload._product_id = product.id
@@ -237,7 +408,7 @@ export default function ProductForm({ mode, categories = [], product = null, gen
     router[method](url, fullPayload, {
       onSuccess: () => {
         toast.success(`${name.trim()} ${isEditing ? 'updated' : 'saved'} ✓`)
-        if (stay && !isEditing) {
+        if (effectiveStay && !isEditing) {
           setSkuSequence((s) => s + 1)
           setSessionCount((c) => c + 1)
           setName('')
@@ -301,55 +472,6 @@ export default function ProductForm({ mode, categories = [], product = null, gen
         </div>
       </div>
 
-      {/* ── What are you creating? ──
-          A physical product is bought and stocked. A formula is a reusable
-          ingredient template that consumes ingredients at sale time and holds no
-          stock of its own. Choosing up front keeps the two workflows distinct. */}
-      {!isEditing && (
-        <div>
-          <p className="mb-2 text-xs font-medium text-foreground">What are you creating?</p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {([
-              {
-                id: 'product',
-                label: 'Physical Product',
-                hint: 'Bought, stocked and sold from inventory.',
-                icon: Package,
-              },
-              {
-                id: 'formula',
-                label: 'Formula',
-                hint: 'A recipe of ingredients, sold as one line.',
-                icon: Beaker,
-              },
-            ] as const).map((option) => {
-              const Icon = option.icon
-              const active = (option.id === 'formula') === formulaMode
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setFormulaMode(option.id === 'formula')}
-                  aria-pressed={active}
-                  className={cn(
-                    'flex items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
-                    active
-                      ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
-                      : 'border-border hover:border-muted-foreground/30',
-                  )}
-                >
-                  <Icon className={cn('mt-0.5 size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-foreground">{option.label}</span>
-                    <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{option.hint}</span>
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       {/* ── Form ── */}
       <Card>
         <CardContent className="p-4 sm:p-6 space-y-5" onKeyDown={handleKeyDown}>
@@ -372,17 +494,21 @@ export default function ProductForm({ mode, categories = [], product = null, gen
             />
           </div>
 
-          {/* Cost Price + Selling Price */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-foreground">Your Cost (Rs.)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">Rs.</span>
-                <input type="number" placeholder="0" value={purchaseCost}
-                  onChange={(e) => setPurchaseCost(e.target.value)}
-                  className="w-full h-10 pl-10 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01" />
+          {/* Cost Price + Selling Price. A formula has no purchase cost: its cost
+              is derived from ingredient prices, so asking for one would imply it
+              is bought at that price. */}
+          <div className={cn('grid grid-cols-1 gap-4', !formulaMode && 'sm:grid-cols-2')}>
+            {!formulaMode && (
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">Your Cost (Rs.)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">Rs.</span>
+                  <input type="number" placeholder="0" value={purchaseCost}
+                    onChange={(e) => setPurchaseCost(e.target.value)}
+                    className="w-full h-10 pl-10 pr-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-1 focus:ring-ring/30" min="0" step="0.01" />
+                </div>
               </div>
-            </div>
+            )}
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-foreground">
                 Selling Price (Rs.) <span className="text-red-500">*</span>
@@ -403,6 +529,12 @@ export default function ProductForm({ mode, categories = [], product = null, gen
               )}
             </div>
           </div>
+
+          {formulaMode && (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              A formula has no purchase cost — its cost is calculated from ingredient prices.
+            </p>
+          )}
 
           {/* Unit + Category (Unit always visible, Category is full-width in quick entry) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -426,23 +558,18 @@ export default function ProductForm({ mode, categories = [], product = null, gen
             />
           </div>
 
-          {/* Formula hand-off. Composition needs a saved product id, so it is
-              authored on the product detail page rather than half-created here. */}
-          <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-3.5">
-            <div className="flex items-start gap-2.5">
-              <Beaker className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">
-                  {formulaMode ? 'Formula ingredients' : 'Formula / composition'}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  {isEditing
-                    ? 'The formula is managed separately from product details. Editing this form does not change ingredients or stock.'
-                    : formulaMode
-                      ? 'Save this formula, then add its ingredients and default quantities on the Formula tab. A formula holds no stock of its own.'
-                      : 'Save the product first, then optionally define a formula for it on the product page.'}
-                </p>
-                {isEditing ? (
+          {/* The formula itself lives on the product page's Formula tab; this
+              form only points there. New formulas are authored on the Add
+              Formula screen instead. */}
+          {isEditing && (
+            <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-3.5">
+              <div className="flex items-start gap-2.5">
+                <Beaker className="mt-0.5 size-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Formula / composition</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    The formula is managed separately from product details. Editing this form does not change ingredients or stock.
+                  </p>
                   <Button
                     type="button"
                     variant="outline"
@@ -452,20 +579,160 @@ export default function ProductForm({ mode, categories = [], product = null, gen
                   >
                     <Beaker className="size-3.5" /> Open Formula tab
                   </Button>
-                ) : formulaMode ? (
-                  <p className="mt-2 text-[11px] font-medium text-primary">
-                    You will be taken to the Formula tab right after saving.
-                  </p>
-                ) : null}
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <SectionDivider />
 
-          {/* ════════════════════════════════════════════════ */}
-          {/* MORE OPTIONS (collapsed) */}
-          {/* ════════════════════════════════════════════════ */}
+          {/* ── Inline ingredients (create + formula only) ──
+              Optional: leaving this empty keeps the previous "add later" flow,
+              but when filled the product and formula are created together. */}
+          {!isEditing && formulaMode && (
+            <div className="space-y-3 rounded-xl border border-border p-3.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Ingredients</h3>
+                <span className="text-xs text-muted-foreground">
+                  {ingredients.length} added
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Optional — leave empty to add ingredients later on the Formula tab.
+              </p>
+
+              {ingredients.length > 0 && (
+                <div className="space-y-2">
+                  {ingredients.map((row) => (
+                    <div key={row.key} className="space-y-2 rounded-lg border border-border p-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-xs font-medium">{row.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeIngredient(row.key)}
+                          aria-label={`Remove ${row.name}`}
+                          className="text-muted-foreground transition-colors hover:text-red-500"
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <input
+                          type="number"
+                          min="0.000001"
+                          step="any"
+                          value={row.quantity}
+                          onChange={(e) => updateIngredient(row.key, { quantity: e.target.value })}
+                          aria-label={`${row.name} quantity`}
+                          placeholder="Qty"
+                          className="h-9 w-full rounded-lg border border-input bg-background px-2 text-sm tabular-nums outline-none focus:border-ring"
+                        />
+                        <select
+                          value={row.unitId}
+                          onChange={(e) => updateIngredient(row.key, { unitId: e.target.value })}
+                          aria-label={`${row.name} unit`}
+                          className="h-9 w-full rounded-lg border border-input bg-background px-2 text-sm outline-none focus:border-ring"
+                        >
+                          {row.unitOptions.map((option) => (
+                            <option key={option.id} value={option.id}>{option.label}</option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="any"
+                          value={row.wastage}
+                          onChange={(e) => updateIngredient(row.key, { wastage: e.target.value })}
+                          aria-label={`${row.name} wastage percent`}
+                          placeholder="Wastage %"
+                          className="h-9 w-full rounded-lg border border-input bg-background px-2 text-sm tabular-nums outline-none focus:border-ring"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <ComponentPicker
+                excludeProductId={0}
+                excludedComponentIds={ingredients.map((row) => row.componentId)}
+                onSelect={addIngredient}
+                disabled={saving}
+              />
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-foreground">Yield quantity</label>
+                  <input
+                    type="number"
+                    min="0.000001"
+                    step="any"
+                    value={yieldQuantity}
+                    onChange={(e) => setYieldQuantity(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm tabular-nums outline-none focus:border-ring"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-foreground">Yield unit</label>
+                  <div className="h-10 rounded-lg border border-input bg-muted px-3 text-sm leading-10">
+                    {resolveUnitDisplay(baseUnitId)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Live cost: the server applies the same line maths as the saved
+                  formula, so this cannot drift from the Formula tab. */}
+              {canViewCost && ingredients.length > 0 && (
+                <div className="rounded-lg border border-border bg-muted/30 p-3" aria-live="polite">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-[11px] font-medium text-muted-foreground">Estimated cost</span>
+                    <span className="text-sm font-semibold tabular-nums">
+                      {costLoading && !draftCost
+                        ? 'Calculating…'
+                        : draftCost?.total_cost == null
+                          ? '—'
+                          : formatCurrency(draftCost.total_cost)}
+                    </span>
+                  </div>
+                  {draftCost?.unit_cost != null && (
+                    <div className="mt-1 flex items-baseline justify-between gap-3">
+                      <span className="text-[11px] text-muted-foreground">Cost per {resolveUnitDisplay(baseUnitId)}</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{formatCurrency(draftCost.unit_cost)}</span>
+                    </div>
+                  )}
+                  {draftCost && !draftCost.complete && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-amber-600 dark:text-amber-400">
+                      Some ingredients have no recorded cost, so the total is incomplete.
+                    </p>
+                  )}
+                  {draftCost?.is_estimated && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                      Based on last known ingredient prices.
+                    </p>
+                  )}
+                  {costError && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                      Cost preview is unavailable right now — you can still save the formula.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-foreground">Formula notes</label>
+                <textarea
+                  rows={2}
+                  value={formulaNotes}
+                  onChange={(e) => setFormulaNotes(e.target.value)}
+                  placeholder="Optional"
+                  className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
+                />
+              </div>
+            </div>
+          )}
+
+          <SectionDivider />
           <section>
             <button type="button" onClick={() => setAdvancedOpen(!advancedOpen)}
               className="w-full flex items-center justify-between py-1 group">

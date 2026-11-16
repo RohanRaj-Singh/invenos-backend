@@ -24,6 +24,8 @@ export interface MobileCartItem {
   isConsumption?: boolean
   /** Runtime ingredient quantities per formula unit (display only). */
   formulaDetails?: { name: string; actual_quantity: number; unit: string }[]
+  /** Server-estimated ingredient cost per formula, when the user may see cost. */
+  formulaCostPerFormulaUnit?: number | null
 }
 
 interface MobileCartListProps {
@@ -164,6 +166,18 @@ export default function MobileCartList({
                       {item.formulaDetails!.map((line) => `${line.name} ${line.actual_quantity}${line.unit}`).join(' · ')} per formula
                     </div>
                   )}
+                  {item.formulaCostPerFormulaUnit != null && (() => {
+                    const totalIngredientCost = item.formulaCostPerFormulaUnit * item.quantity
+                    const profit = item.totalCost - totalIngredientCost
+                    const margin = item.totalCost > 0 ? (profit / item.totalCost) * 100 : null
+
+                    return (
+                      <div className={`mt-0.5 text-[10px] tabular-nums ${profit < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+                        Est. cost {formatCurrency(totalIngredientCost)} · profit {formatCurrency(profit)}
+                        {margin != null && ` · ${margin.toFixed(1)}%`}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
               <button

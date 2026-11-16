@@ -163,6 +163,8 @@ interface CustomUnitOption {
 
 export default function SaleBillPage() {
   const { props: inertiaProps } = usePage()
+  // Server-decided capability: without it the POS never requests cost data.
+  const canViewCost = Boolean((inertiaProps as any).can_view_cost)
   const rawProducts = (inertiaProps as any).products || []
   // Normalize backend snake_case → camelCase for prototype compatibility.
   // Archived products can't be sold, so drop them here — this also keeps them out
@@ -409,6 +411,7 @@ export default function SaleBillPage() {
       formulaOverrides: customization.overrides,
       formulaOptionalItemIds: customization.optionalItemIds,
       formulaDetails: customization.details,
+      formulaCostPerFormulaUnit: customization.estimatedCostPerFormulaUnit ?? null,
     }
 
     setCart((prev) => {
@@ -444,6 +447,30 @@ export default function SaleBillPage() {
     setShowResults(false)
     searchInputRef.current?.focus()
   }, [formulaProduct])
+
+  /**
+   * Commercial context for the dialog's profitability preview. It reacts to the
+   * cart line's quantity, price override and discount without giving the dialog
+   * ownership of any of them.
+   */
+  const formulaDialogContext = useMemo(() => {
+    if (!formulaProduct) return null
+
+    const existing = cart.find((c) => String(c.productId) === String(formulaProduct.id))
+    const defaultSU = getDefaultSellingUnit(formulaProduct)
+
+    return {
+      quantity: existing?.packagingQuantity ?? 1,
+      sellingUnitId: existing?.sellingUnitId
+        ? Number(existing.sellingUnitId)
+        : (defaultSU ? Number(defaultSU.id) : null),
+      unitPrice: priceOverrides[formulaProduct.id]
+        ?? existing?.unitPrice
+        ?? defaultSU?.salePrice
+        ?? null,
+      discountPercent: discountPcts[formulaProduct.id] ?? 0,
+    }
+  }, [formulaProduct, cart, priceOverrides, discountPcts])
 
   const updateQuantity = useCallback((productId: string, delta: number) => {
     setCart((prev) =>
@@ -998,6 +1025,20 @@ export default function SaleBillPage() {
                             {item.packagingQuantity > 1 && ` · ${item.packagingQuantity} formulas`}
                           </div>
                         )}
+                        {/* Compact estimate from the server-provided cost per formula. */}
+                        {canViewCost && item.formulaCostPerFormulaUnit != null && (() => {
+                          const totalCost = item.formulaCostPerFormulaUnit * item.packagingQuantity
+                          const revenue = Number(computedItem.total) || 0
+                          const profit = revenue - totalCost
+                          const margin = revenue > 0 ? (profit / revenue) * 100 : null
+
+                          return (
+                            <div className={`mt-0.5 truncate text-[9px] tabular-nums ${profit < 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
+                              Est. cost {formatCurrency(totalCost)} · profit {formatCurrency(profit)}
+                              {margin != null && ` · ${margin.toFixed(1)}%`}
+                            </div>
+                          )
+                        })()}
                       </Td>
                       <Td>
                         <select
@@ -1201,6 +1242,7 @@ export default function SaleBillPage() {
                 selectedUnitId: c.sellingUnitId,
                 isConsumption: c.hasConsumptionComposition === true || prod?.hasConsumptionComposition === true,
                 formulaDetails: c.formulaDetails,
+                formulaCostPerFormulaUnit: canViewCost ? c.formulaCostPerFormulaUnit ?? null : null,
               }
             })}
             costLabel="Price"
@@ -1351,6 +1393,11 @@ export default function SaleBillPage() {
           open={Boolean(formulaProduct)}
           product={{ id: formulaProduct.id, name: formulaProduct.name }}
           initial={formulaInitial}
+          canViewCost={canViewCost}
+          quantity={formulaDialogContext?.quantity ?? 1}
+          sellingUnitId={formulaDialogContext?.sellingUnitId ?? null}
+          unitPrice={formulaDialogContext?.unitPrice ?? null}
+          discountPercent={formulaDialogContext?.discountPercent ?? 0}
           onClose={() => {
             setFormulaProduct(null)
             setFormulaInitial(null)

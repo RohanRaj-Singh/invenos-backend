@@ -12,13 +12,14 @@ class SettingService
     {
         return Cache::remember('app_settings', 3600, function () {
             $setting = Setting::first();
+
             return $setting ? $setting->values : $this->defaults();
         });
     }
 
     public function update(UpdateSettingsData $data): array
     {
-        $settings = Setting::first() ?? new Setting();
+        $settings = Setting::first() ?? new Setting;
         $current = $settings->values ?? $this->defaults();
 
         foreach ($data->toArray() as $group => $values) {
@@ -36,10 +37,11 @@ class SettingService
     public function reset(): array
     {
         $defaults = $this->defaults();
-        $settings = Setting::first() ?? new Setting();
+        $settings = Setting::first() ?? new Setting;
         $settings->values = $defaults;
         $settings->save();
         Cache::forget('app_settings');
+
         return $defaults;
     }
 
@@ -80,6 +82,11 @@ class SettingService
                 'barcode_format' => 'CODE128',
                 'default_category' => '',
                 'stock_valuation_method' => 'fifo',
+            ],
+            // Formula pricing guidance. A gross margin, never a markup:
+            // recommended price = cost / (1 - margin/100).
+            'composition' => [
+                'target_margin_percent' => 30,
             ],
             'sales' => [
                 'invoice_prefix' => 'INV-',

@@ -20,7 +20,7 @@ export default function SaleReturnDetailPage() {
 
   // Rendered by ReturnWorkflowController@show for canonical (server) returns.
   if (serverReturn) {
-    return <ServerReturnDetail ret={serverReturn} canProcess={Boolean((props as { canProcess?: boolean }).canProcess)} />
+    return <ServerReturnDetail ret={serverReturn} canProcess={Boolean((props as { canProcess?: boolean }).canProcess)} canViewCost={Boolean((props as { can_view_cost?: boolean }).can_view_cost)} />
   }
 
   const id = url.split('/').pop() || '';
@@ -284,7 +284,7 @@ const STATUS_STYLES: Record<string, string> = {
   reversed: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-400',
 }
 
-function ServerReturnDetail({ ret, canProcess }: { ret: ServerReturn; canProcess: boolean }) {
+function ServerReturnDetail({ ret, canProcess, canViewCost }: { ret: ServerReturn; canProcess: boolean; canViewCost: boolean }) {
   const items = ret.items ?? []
   const recoveries = ret.component_recoveries ?? []
   const restored = recoveries.filter((r) => r.restored_at !== null)
@@ -383,18 +383,20 @@ function ServerReturnDetail({ ret, canProcess }: { ret: ServerReturn; canProcess
           ) : (
             <div className="space-y-1">
               <div className="grid grid-cols-12 gap-3 px-3 py-2 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                <div className="col-span-5">Component</div>
+                <div className={canViewCost ? 'col-span-5' : 'col-span-7'}>Component</div>
                 <div className="col-span-2 text-center">Recovered</div>
-                <div className="col-span-2 text-right">Cost</div>
+                {canViewCost && <div className="col-span-2 text-right">Cost</div>}
                 <div className="col-span-3 text-right">Status</div>
               </div>
               {recoveries.map((recovery) => (
                 <div key={recovery.id} className="grid grid-cols-12 gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-sm">
-                  <div className="col-span-5 font-medium text-foreground truncate">{recovery.component_name ?? 'Component'}</div>
+                  <div className={`${canViewCost ? 'col-span-5' : 'col-span-7'} font-medium text-foreground truncate`}>{recovery.component_name ?? 'Component'}</div>
                   <div className="col-span-2 text-center text-muted-foreground">{recovery.recovered_quantity} {recovery.unit}</div>
-                  <div className="col-span-2 text-right text-muted-foreground">
-                    {recovery.total_cost === null ? '—' : formatCurrency(recovery.total_cost)}
-                  </div>
+                  {canViewCost && (
+                    <div className="col-span-2 text-right text-muted-foreground">
+                      {recovery.total_cost == null ? '—' : formatCurrency(recovery.total_cost)}
+                    </div>
+                  )}
                   <div className="col-span-3 text-right">
                     <Badge variant="outline" className={cn('text-[10px] px-1.5 py-0 h-5', recovery.restored_at ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-muted text-muted-foreground')}>
                       {recovery.restored_at ? 'Restored' : 'Pending'}

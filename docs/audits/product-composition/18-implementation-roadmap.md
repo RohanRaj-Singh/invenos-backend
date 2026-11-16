@@ -584,6 +584,130 @@ no behavioural assertion was changed.
 business setting defaults to forbidden. That precedence is pre-existing and documented, not changed
 here.
 
+---
+
+## P14 — Formula costing & UX audit (no implementation)
+
+**Status:** audit complete, implementation **not started**. See `P14-COSTING-UX-AUDIT.md`.
+
+**Headline:** the costing engine already exists and is correct (`CompositionCostCalculator`,
+`CostResolver`); the gaps are exposure, workflow and pricing guidance — not capability.
+
+**Findings:**
+- **P0 (F1)** composition API returns `unit_cost`/`line_cost`/`estimated_cost` to salesmen — verified
+  empirically — while the UI hides cost from them. Gating belongs in the resource, not the UI.
+- **P0 (F3)** the version-history "Cost" column is recomputed with *current* ingredient costs and is
+  presented as if it were that version's cost.
+- **P1 (F4)** formula creation needs save → redirect → builder; a single transaction could do both.
+- **P1 (F5)** no formula detail surface; ingredients truncated to 5; the `show` endpoint already
+  returns everything needed.
+- **P1 (F6)** "Your Cost (Rs.)" is shown for formulas although their cost is derived.
+- **P2 (F7, F2)** no target margin or recommended price; POS dialog has no cost, profit or margin and
+  no below-cost warning.
+- **P3 (F8–F10)** `allow_price_override` is a dead setting; no cost/margin on formula rows; no
+  per-formula profitability report.
+
+**Recommended order:** cost permission → honest version cost → combined creation → detail drawer →
+target margin + recommended price → POS adjusted cost → polish.
+
+**No new tables required.** Target margin belongs in the existing settings JSON.
+
+---
+
+## P15 — Formula cost security & workflow implementation
+
+**Status:** implemented. See `P15-COST-SECURITY-WORKFLOW.md`.
+
+**P0 cost confidentiality.** New `products.composition.cost` permission; cost keys are **omitted**
+(not nulled) from composition and ingredient resources for users without it, and the cost-only
+`preview` endpoint now returns 403 to them. The product page's `can_view_cost` comes from the server
+instead of `role === 'admin'`. No new tables.
+
+**P0 historical cost semantics.** The version table no longer implies historical cost: the column is
+"Current est. cost" with an explicit note that it uses today's ingredient prices.
+
+**P1 atomic creation.** `POST /inventory` accepts an optional `composition` payload; product and
+version 1 commit in one transaction, so a rejected ingredient leaves nothing behind. Product-only
+creation is unchanged.
+
+**P1 formula detail.** Read-only drawer with the complete ingredient list, yield, notes and (when
+permitted) cost, reachable from each formula card and each version row.
+
+**P1 purchase cost.** "Your Cost" is hidden for formulas, with an explanation that cost is derived;
+existing stored values are preserved on edit.
+
+**Regression:** 414 passed / 5 failed / 1,748 assertions. The 5 failures are the pre-existing missing
+`/profile` route. Build and Pint pass.
+
+**Not done:** POS adjusted-cost preview, target margin / recommended price, per-formula profitability
+(P14 P2/P3), stored template cost snapshots.
+
+---
+
+## P16 — Formula target margin & recommended pricing
+
+**Status:** implemented. See `P16-TARGET-MARGIN-PRICING.md`.
+
+**Setting.** `composition.target_margin_percent` in the existing settings JSON (no table, no
+migration), default **30%**, validated `0 ≤ m < 100` server-side, editable from a new
+Settings → Formula Pricing page that persists to the server.
+
+**Pricing.** `CompositionPricingService` relates the existing `CompositionCostCalculator` output to
+the product's selling price. Gross margin, never markup:
+`price = cost / (1 − m/100)`. Cost per selling unit = `unit_cost × selling_unit.quantity`, matching
+what checkout actually consumes.
+
+**API.** No new endpoints: a `pricing` block rides on the existing composition resources and on the
+builder's cost preview. It is emitted inside the `products.composition.cost` gate from P15, so nothing
+cost-derived reaches unauthorised users.
+
+**UI.** Pricing panel in the formula detail drawer (current + recommended), target margin and
+recommended price in the builder preview, and a compact margin/target/recommended line on each
+formula card.
+
+**Regression:** 439 passed / 5 failed / 1,844 assertions; +25 over P15. The 5 failures are the
+pre-existing missing `/profile` route. Build, Pint and `git diff --check` pass.
+
+**Deferred:** applying a recommended price, margin columns in the product list (per-row cost cost),
+per-formula/per-category margins, historical cost snapshots, and the pre-existing mock-backed
+Sales/Inventory settings pages.
+
+---
+
+## P17 — POS formula profitability preview
+
+**Status:** implemented. Audit: `P17-POS-PROFITABILITY-AUDIT.md`; implementation:
+`P17-POS-PROFITABILITY-PREVIEW.md`.
+
+**Finding.** POS overrides are per formula unit; checkout multiplies them by `formulaUnits` exactly
+once, skips wastage for overridden lines, and explodes nested compositions. The builder's `preview`
+takes a save payload, so it could not be reused directly.
+
+**Architecture.** New read-only `POST /inventory/product/{product}/composition/cost-preview` →
+`PosFormulaProfitabilityService`, which reuses the execution engine's own
+`explode`/`aggregate`/`applyCosts` (exposed through an extracted `prepareExecution` +
+`previewRequirements`), a new `CompositionQuantityMath` that `SaleService` now delegates to, and
+`CompositionPricingService::recommendedPriceFor()` for the recommendation. No locks, writes or stock
+preflight; no second costing engine.
+
+**Profitability.** `gross = quantity × unit_price`; line discount by percentage or flat amount;
+`profit = net_revenue − total_ingredient_cost`; `margin = profit / net_revenue` (null at zero
+revenue). Incomplete cost hides profit and margin rather than guessing.
+
+**Authorization.** Endpoint requires `products.composition.cost` (403 otherwise); the POS receives a
+server-computed `can_view_cost` and skips the request entirely without it. Preview never gates
+checkout — a salesman still sells the formula.
+
+**UI.** Customization dialog gains a debounced, stale-safe profitability panel; the desktop and mobile
+carts show a compact est. cost / profit / margin line from the stored per-formula cost (no per-row
+requests).
+
+**Regression:** 464 passed / 5 failed / 1,958 assertions; +25 over P16. The 5 failures are the
+pre-existing missing `/profile` route. Build, Pint and `git diff --check` pass.
+
+**Deferred:** cart-level discount allocation per line, overhead/net profit, automated frontend tests
+(no runner), and browser verification.
+
 ## First implementation phase
 
 **P0 — Integrity prerequisites.** It is the only phase that can be started without deciding the

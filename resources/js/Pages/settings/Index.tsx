@@ -1,5 +1,5 @@
 import { router } from '@inertiajs/react'
-import { Building2, ShoppingCart, Package, ShoppingBag, Receipt, Database, Info, Settings2 } from 'lucide-react'
+import { Building2, ShoppingCart, Package, ShoppingBag, Receipt, Database, Info, Settings2, Beaker } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
@@ -8,6 +8,7 @@ const SECTIONS = [
   { id: 'pos', label: 'POS Settings', desc: 'Default customer, payment method, receipt size, and scan options', icon: ShoppingCart, href: '/settings/pos', color: 'text-emerald-600' },
   { id: 'inventory', label: 'Inventory Settings', desc: 'Stock thresholds, units, SKU generation, and valuation', icon: Package, href: '/settings/inventory', color: 'text-purple-600' },
   { id: 'sales', label: 'Sales Settings', desc: 'Invoice prefix, tax, discount, and sale behaviour', icon: ShoppingBag, href: '/settings/sales', color: 'text-amber-600' },
+  { id: 'composition', label: 'Formula Pricing', desc: 'Target profit margin used to recommend formula selling prices', icon: Beaker, href: '/settings/composition', color: 'text-teal-600' },
   { id: 'purchases', label: 'Purchase Settings', desc: 'Purchase prefix, cost price updates, supplier defaults', icon: ShoppingBag, href: '/settings/purchases', color: 'text-orange-600' },
   { id: 'receipt', label: 'Receipt Settings', desc: 'Receipt header, footer, logo, and paper size', icon: Receipt, href: '/settings/receipt', color: 'text-rose-600' },
   { id: 'backup', label: 'Backup & Restore', desc: 'Create and restore system backups', icon: Database, href: '/settings/backup', color: 'text-cyan-600' },

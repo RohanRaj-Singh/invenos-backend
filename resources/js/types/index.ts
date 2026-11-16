@@ -341,6 +341,8 @@ export interface CartItem {
   formulaOverrides?: FormulaOverride[]
   formulaOptionalItemIds?: number[]
   formulaDetails?: FormulaDetailLine[]
+  /** Server-estimated ingredient cost of one formula at the confirmed quantities. */
+  formulaCostPerFormulaUnit?: number | null
 }
 
 export interface POSCustomer {

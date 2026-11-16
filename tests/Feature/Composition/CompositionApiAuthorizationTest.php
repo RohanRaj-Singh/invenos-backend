@@ -87,9 +87,10 @@ class CompositionApiAuthorizationTest extends TestCase
             ->deleteJson("/inventory/product/{$parent->id}/composition/{$id}")
             ->assertForbidden();
 
+        // Preview returns nothing but cost, so it requires the cost permission.
         $this->actingAs($salesman)
             ->postJson("/inventory/product/{$parent->id}/composition/preview", $this->payload($parent, $component))
-            ->assertOk();
+            ->assertForbidden();
 
         $this->actingAs($salesman)
             ->getJson('/inventory/composition/components')
